@@ -1,6 +1,11 @@
 /**
  * HTTP request and response shapes. Responses use snake_case field names, the
  * same as the message contracts.
+ *
+ * Every shape is a zod schema, and `openapi.ts` builds the published OpenAPI
+ * document from them. Response schemas are strict so the API tests can check
+ * that responses carry no undocumented fields; the published document leaves
+ * them open, since clients must ignore fields they don't know.
  */
 
 import { z } from 'zod';
@@ -18,29 +23,32 @@ export function documentPath(docId: string): string {
   return `/documents/${docId}`;
 }
 
-export interface DocumentLinks {
-  self: string;
-  content: string;
-  /** Present once extraction has succeeded. */
-  text: string | null;
-}
+const DocumentStatusSchema = z.enum(DOCUMENT_STATUSES as [DocumentStatus, ...DocumentStatus[]]);
 
-export interface DocumentResponse {
-  doc_id: string;
-  tenant_id: string;
-  filename: string;
-  content_type: string;
-  size_bytes: number;
-  status: DocumentStatus;
-  error: string | null;
-  title: string | null;
-  tags: string[];
-  metadata: Record<string, string>;
-  created_at: string;
-  updated_at: string;
-  extracted_at: string | null;
-  links: DocumentLinks;
-}
+export const DocumentLinksSchema = z.strictObject({
+  self: z.string(),
+  content: z.string(),
+  text: z.string().nullable().describe('Present once extraction has succeeded.'),
+});
+export type DocumentLinks = z.output<typeof DocumentLinksSchema>;
+
+export const DocumentResponseSchema = z.strictObject({
+  doc_id: z.string(),
+  tenant_id: z.string(),
+  filename: z.string(),
+  content_type: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+  status: DocumentStatusSchema,
+  error: z.string().nullable().describe('Why extraction failed; set only when status is failed.'),
+  title: z.string().nullable(),
+  tags: z.array(z.string()),
+  metadata: z.record(z.string(), z.string()),
+  created_at: z.iso.datetime(),
+  updated_at: z.iso.datetime(),
+  extracted_at: z.iso.datetime().nullable(),
+  links: DocumentLinksSchema,
+});
+export type DocumentResponse = z.output<typeof DocumentResponseSchema>;
 
 export function documentLinks(doc: Document): DocumentLinks {
   const base = documentPath(doc.id);
@@ -70,11 +78,11 @@ export function toDocumentResponse(doc: Document): DocumentResponse {
   };
 }
 
-export interface DocumentListResponse {
-  items: DocumentResponse[];
-  /** Pass as `cursor` to fetch the next page; null on the last page. */
-  next_cursor: string | null;
-}
+export const DocumentListResponseSchema = z.strictObject({
+  items: z.array(DocumentResponseSchema),
+  next_cursor: z.string().nullable().describe('Pass as `cursor` to fetch the next page; null on the last page.'),
+});
+export type DocumentListResponse = z.output<typeof DocumentListResponseSchema>;
 
 export function toDocumentListResponse(page: DocumentPage): DocumentListResponse {
   return {
@@ -83,16 +91,36 @@ export function toDocumentListResponse(page: DocumentPage): DocumentListResponse
   };
 }
 
-/** Response of the deprecated `POST /upload` (kept for existing clients). */
-export interface UploadResponse {
-  doc_id: string;
-  tenant_id: string;
-  filename: string;
-  content_type: string;
-  blob_url: string;
-  status: string;
-  links: DocumentLinks;
-}
+export const UploadResponseSchema = z
+  .strictObject({
+    doc_id: z.string(),
+    tenant_id: z.string(),
+    filename: z.string(),
+    content_type: z.string(),
+    blob_url: z.string(),
+    status: DocumentStatusSchema,
+    links: DocumentLinksSchema,
+  })
+  .describe('Response of the deprecated `POST /upload` (kept for existing clients).');
+export type UploadResponse = z.output<typeof UploadResponseSchema>;
+
+/** Every error body except a 422's. */
+export const ErrorResponseSchema = z.strictObject({ detail: z.string() });
+
+/** A 422: every issue found in the request. */
+export const ValidationErrorResponseSchema = z.strictObject({
+  detail: z.array(
+    z.strictObject({
+      loc: z
+        .array(z.union([z.string(), z.number()]))
+        .describe('Where the issue is: `body`, `query` or `path`, then the field.'),
+      msg: z.string(),
+      type: z.string(),
+    }),
+  ),
+});
+
+export const ProbeResponseSchema = z.strictObject({ status: z.string() });
 
 export function toUploadResponse(doc: Document, blobUrl: string): UploadResponse {
   return {
@@ -128,7 +156,9 @@ export function parseRequest<T extends z.ZodType>(schema: T, value: unknown, loc
 const tag = z.string().trim().min(1).max(64);
 const metadata = z
   .record(z.string().min(1).max(64), z.string().max(1024))
-  .refine((value) => Object.keys(value).length <= 50, { message: 'at most 50 entries' });
+  .refine((value) => Object.keys(value).length <= 50, { message: 'at most 50 entries' })
+  // The refinement above, for the OpenAPI document.
+  .meta({ maxProperties: 50 });
 
 /**
  * JSON merge-patch semantics: only fields present are changed; `null` clears
@@ -153,7 +183,7 @@ export function listQuerySchema(maxPageSize: number) {
   return z.object({
     limit: z.coerce.number().int().min(1).max(maxPageSize).optional(),
     cursor: z.string().max(512).optional(),
-    status: z.enum(DOCUMENT_STATUSES as [DocumentStatus, ...DocumentStatus[]]).optional(),
+    status: DocumentStatusSchema.optional(),
   });
 }
 

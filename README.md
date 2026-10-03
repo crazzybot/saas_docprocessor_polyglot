@@ -54,9 +54,10 @@ just demo             # in another terminal: upload sample.pdf and walk through 
 
 ```
 saas_docprocessor_polyglot/
-├── contracts/                    the message contracts: language-neutral source of truth
-│   ├── schemas/*.schema.json     JSON Schema (draft 2020-12), one per message
-│   └── examples/<message>/{valid,invalid}/*.json   golden messages both languages' tests run
+├── contracts/                    the contracts, language-neutral
+│   ├── schemas/*.schema.json     JSON Schema (draft 2020-12), one per message: source of truth
+│   ├── examples/<message>/{valid,invalid}/*.json   golden messages both languages' tests run
+│   └── openapi.json              the document service's HTTP API (OpenAPI 3.1) · GENERATED
 ├── services/
 │   ├── document-service/         TypeScript · pnpm workspace member · NestJS
 │   │   ├── src/                  domain / application / adapters / api, composition root
@@ -72,7 +73,7 @@ saas_docprocessor_polyglot/
 │   │   └── src/generated/        Azure clients, JSON logging, telemetry, shutdown · GENERATED types
 │   └── py-shared/                docprocessor-shared: contracts (pydantic), settings, Azure clients,
 │       └── docprocessor_shared/generated/            logging, telemetry · GENERATED models
-├── scripts/                      generate-ts-contracts.mjs, copy-assets.mjs
+├── scripts/                      generate-ts-contracts.mjs, generate-openapi.mjs, copy-assets.mjs
 ├── justfile                      the one entry point for both toolchains
 ├── package.json, pnpm-workspace.yaml, pnpm-lock.yaml, tsconfig*.json   TypeScript workspace
 ├── pyproject.toml, uv.lock, ruff.toml, .python-version                 Python workspace
@@ -160,6 +161,33 @@ model validator in `contracts.py` enforces it in Python. The golden example
 
 Bodies travel as UTF-8 JSON in the AMQP data section, which both Service Bus
 SDKs read back as the same text.
+
+## HTTP API contract
+
+[`contracts/openapi.json`](contracts/openapi.json) describes the document
+service's HTTP API (OpenAPI 3.1) for clients: SDK generation, docs, mocks.
+Unlike the message schemas, it is **generated from the service**, since only
+one service implements it. The zod schemas in
+`services/document-service/src/api/schemas.ts` validate requests and type
+responses, and `src/api/openapi.ts` lists the operations and builds the
+document from those schemas (with the default settings, so page and upload
+limits are the defaults).
+
+**Changing the API:** change the schemas and the controller, update the
+operation in `openapi.ts`, then run `just contracts` and `just check`. The
+same additive rule applies: responses gain fields, never lose or rename
+them. The published schemas don't forbid unknown fields, so clients that
+validate keep working when one is added.
+
+**What guards it:**
+
+- `just contracts-check` rebuilds the service and fails if `openapi.json`
+  differs from what's committed.
+- `services/document-service/test/openapi.test.ts` checks that the document
+  lists exactly the controllers' routes, and that real responses (successes,
+  validation, auth and conflict errors) have a documented status, the
+  documented headers, and bodies that match their schema with no
+  undocumented fields (the zod response schemas are strict).
 
 ## Services
 

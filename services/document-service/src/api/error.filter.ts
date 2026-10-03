@@ -83,6 +83,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
     response
       .status(status)
       .set(headers ?? {})
+      // Explicitly: `json()` keeps a Content-Type the route already set
+      // (e.g. text/plain on GET /documents/:docId/text).
+      .type('application/json')
       .json({ detail });
   }
 }

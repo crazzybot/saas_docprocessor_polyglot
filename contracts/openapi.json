@@ -1,0 +1,800 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Document Service API",
+    "version": "2.0.0",
+    "description": "Upload documents, browse the catalog, and read the extracted text. Every document belongs to the tenant of the caller's token. Limits shown (page and upload sizes) are the defaults; deployments may configure them."
+  },
+  "tags": [
+    { "name": "documents", "description": "Upload, catalog, content and text." },
+    { "name": "probes", "description": "Liveness and readiness (not routed through the ingress)." }
+  ],
+  "servers": [{ "url": "/", "description": "Wherever this document is served from." }],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/documents": {
+      "post": {
+        "operationId": "createDocument",
+        "summary": "Upload a document",
+        "description": "Stores the file and queues it for text extraction, which runs asynchronously.",
+        "tags": ["documents"],
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CorrelationId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "One file, at most 25 MB, of type application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document, image/png, image/jpeg. Its content must match the declared type.",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": { "file": { "type": "string", "format": "binary" } },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted; status is `queued`.",
+            "headers": {
+              "Location": { "$ref": "#/components/headers/Location" },
+              "ETag": { "$ref": "#/components/headers/ETag" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentResponse" } } }
+          },
+          "400": {
+            "description": "Empty file, or invalid tenant ID.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": {
+            "description": "Missing, malformed, invalid or expired token.",
+            "headers": {
+              "WWW-Authenticate": { "$ref": "#/components/headers/WWW-Authenticate" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "403": {
+            "description": "Tenant not onboarded, token lacks the required permission, or `X-Tenant-ID` differs from the token.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "413": {
+            "description": "The file is too large.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "415": {
+            "description": "Unsupported content type, or the content does not match it.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "422": {
+            "description": "The request failed validation.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unavailable; retry later.",
+            "headers": {
+              "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listDocuments",
+        "summary": "List documents",
+        "description": "Newest first, 20 per page unless `limit` says otherwise.",
+        "tags": ["documents"],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100 }
+          },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 512 } },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["queued", "succeeded", "failed"] }
+          },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CorrelationId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of documents.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentListResponse" } } }
+          },
+          "400": {
+            "description": "Invalid cursor, or invalid tenant ID.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": {
+            "description": "Missing, malformed, invalid or expired token.",
+            "headers": {
+              "WWW-Authenticate": { "$ref": "#/components/headers/WWW-Authenticate" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "403": {
+            "description": "Tenant not onboarded, token lacks the required permission, or `X-Tenant-ID` differs from the token.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "422": {
+            "description": "The request failed validation.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unavailable; retry later.",
+            "headers": {
+              "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/upload": {
+      "post": {
+        "operationId": "uploadDocument",
+        "summary": "Upload a document (deprecated)",
+        "description": "Use `POST /documents`.",
+        "tags": ["documents"],
+        "deprecated": true,
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CorrelationId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "One file, at most 25 MB, of type application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document, image/png, image/jpeg. Its content must match the declared type.",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": { "file": { "type": "string", "format": "binary" } },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted; status is `queued`.",
+            "headers": {
+              "Location": { "$ref": "#/components/headers/Location" },
+              "Deprecation": { "$ref": "#/components/headers/Deprecation" },
+              "Link": { "$ref": "#/components/headers/Link" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UploadResponse" } } }
+          },
+          "400": {
+            "description": "Empty file, or invalid tenant ID.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": {
+            "description": "Missing, malformed, invalid or expired token.",
+            "headers": {
+              "WWW-Authenticate": { "$ref": "#/components/headers/WWW-Authenticate" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "403": {
+            "description": "Tenant not onboarded, token lacks the required permission, or `X-Tenant-ID` differs from the token.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "413": {
+            "description": "The file is too large.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "415": {
+            "description": "Unsupported content type, or the content does not match it.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "422": {
+            "description": "The request failed validation.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unavailable; retry later.",
+            "headers": {
+              "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/documents/{docId}": {
+      "get": {
+        "operationId": "getDocument",
+        "summary": "Get a document",
+        "tags": ["documents"],
+        "parameters": [
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CorrelationId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/ETag" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentResponse" } } }
+          },
+          "400": {
+            "description": "Invalid tenant ID.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": {
+            "description": "Missing, malformed, invalid or expired token.",
+            "headers": {
+              "WWW-Authenticate": { "$ref": "#/components/headers/WWW-Authenticate" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "403": {
+            "description": "Tenant not onboarded, token lacks the required permission, or `X-Tenant-ID` differs from the token.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "404": {
+            "description": "No such document for this tenant.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "422": {
+            "description": "The request failed validation.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unavailable; retry later.",
+            "headers": {
+              "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateDocument",
+        "summary": "Update a document's title, tags or metadata",
+        "tags": ["documents"],
+        "parameters": [
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          },
+          { "$ref": "#/components/parameters/IfMatch" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CorrelationId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON merge-patch semantics: only fields present are changed; `null` clears `title` and empties `tags` / `metadata`. Unknown fields are rejected.",
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentPatch" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated document.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/ETag" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentResponse" } } }
+          },
+          "400": {
+            "description": "Invalid tenant ID.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": {
+            "description": "Missing, malformed, invalid or expired token.",
+            "headers": {
+              "WWW-Authenticate": { "$ref": "#/components/headers/WWW-Authenticate" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "403": {
+            "description": "Tenant not onboarded, token lacks the required permission, or `X-Tenant-ID` differs from the token.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "404": {
+            "description": "No such document for this tenant.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "412": {
+            "description": "`If-Match` does not match the current version.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/ETag" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "422": {
+            "description": "The request failed validation.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unavailable; retry later.",
+            "headers": {
+              "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteDocument",
+        "summary": "Delete a document",
+        "tags": ["documents"],
+        "parameters": [
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          },
+          { "$ref": "#/components/parameters/IfMatch" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CorrelationId" }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } }
+          },
+          "400": {
+            "description": "Invalid tenant ID.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": {
+            "description": "Missing, malformed, invalid or expired token.",
+            "headers": {
+              "WWW-Authenticate": { "$ref": "#/components/headers/WWW-Authenticate" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "403": {
+            "description": "Tenant not onboarded, token lacks the required permission, or `X-Tenant-ID` differs from the token.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "404": {
+            "description": "No such document for this tenant.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "412": {
+            "description": "`If-Match` does not match the current version.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/ETag" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "422": {
+            "description": "The request failed validation.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unavailable; retry later.",
+            "headers": {
+              "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/documents/{docId}/content": {
+      "get": {
+        "operationId": "getDocumentContent",
+        "summary": "Download the original file",
+        "tags": ["documents"],
+        "parameters": [
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CorrelationId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file, with its original content type and filename (`Content-Disposition`).",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/ETag" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": {
+              "application/pdf": { "schema": { "type": "string", "format": "binary" } },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": { "type": "string", "format": "binary" }
+              },
+              "image/png": { "schema": { "type": "string", "format": "binary" } },
+              "image/jpeg": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "400": {
+            "description": "Invalid tenant ID.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": {
+            "description": "Missing, malformed, invalid or expired token.",
+            "headers": {
+              "WWW-Authenticate": { "$ref": "#/components/headers/WWW-Authenticate" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "403": {
+            "description": "Tenant not onboarded, token lacks the required permission, or `X-Tenant-ID` differs from the token.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "404": {
+            "description": "No such document for this tenant.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "422": {
+            "description": "The request failed validation.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unavailable; retry later.",
+            "headers": {
+              "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/documents/{docId}/text": {
+      "get": {
+        "operationId": "getDocumentText",
+        "summary": "Get the extracted text",
+        "tags": ["documents"],
+        "parameters": [
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CorrelationId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The extracted text.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/ETag" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "text/plain": { "schema": { "type": "string" } } }
+          },
+          "400": {
+            "description": "Invalid tenant ID.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": {
+            "description": "Missing, malformed, invalid or expired token.",
+            "headers": {
+              "WWW-Authenticate": { "$ref": "#/components/headers/WWW-Authenticate" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "403": {
+            "description": "Tenant not onboarded, token lacks the required permission, or `X-Tenant-ID` differs from the token.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "404": {
+            "description": "No such document for this tenant.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "409": {
+            "description": "Extraction has not succeeded (yet).",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "422": {
+            "description": "The request failed validation.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unavailable; retry later.",
+            "headers": {
+              "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "health",
+        "summary": "Liveness probe",
+        "tags": ["probes"],
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/CorrelationId" }],
+        "responses": {
+          "200": {
+            "description": "The process is up.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProbeResponse" } } }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "ready",
+        "summary": "Readiness probe",
+        "description": "Checks the catalog database and Blob Storage (not Service Bus).",
+        "tags": ["probes"],
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/CorrelationId" }],
+        "responses": {
+          "200": {
+            "description": "Ready to serve requests.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProbeResponse" } } }
+          },
+          "503": {
+            "description": "A dependency is unreachable.",
+            "headers": { "X-Correlation-ID": { "$ref": "#/components/headers/X-Correlation-ID" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "A Microsoft Entra ID access token; its `tid` claim is the caller's tenant."
+      }
+    },
+    "parameters": {
+      "TenantId": {
+        "name": "X-Tenant-ID",
+        "in": "header",
+        "required": false,
+        "description": "Optional; if sent, must match the token's tenant.",
+        "schema": { "type": "string" }
+      },
+      "CorrelationId": {
+        "name": "X-Correlation-ID",
+        "in": "header",
+        "required": false,
+        "description": "Propagated to logs and events; generated if absent.",
+        "schema": { "type": "string" }
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": false,
+        "description": "An `ETag` from an earlier response; the request fails with 412 if the document has changed since.",
+        "schema": { "type": "string" }
+      }
+    },
+    "headers": {
+      "ETag": { "description": "The document's version; send it back in `If-Match`.", "schema": { "type": "string" } },
+      "Location": { "description": "The new document's URL.", "schema": { "type": "string" } },
+      "Deprecation": { "description": "This endpoint is deprecated.", "schema": { "type": "string" } },
+      "Link": { "description": "The successor endpoint.", "schema": { "type": "string" } },
+      "Retry-After": { "description": "Seconds to wait before retrying.", "schema": { "type": "integer" } },
+      "WWW-Authenticate": { "description": "The authentication scheme.", "schema": { "type": "string" } },
+      "X-Correlation-ID": {
+        "description": "The request's correlation ID: the client's, or a new one.",
+        "schema": { "type": "string" }
+      }
+    },
+    "schemas": {
+      "DocumentResponse": {
+        "type": "object",
+        "properties": {
+          "doc_id": { "type": "string" },
+          "tenant_id": { "type": "string" },
+          "filename": { "type": "string" },
+          "content_type": { "type": "string" },
+          "size_bytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "status": { "type": "string", "enum": ["queued", "succeeded", "failed"] },
+          "error": {
+            "description": "Why extraction failed; set only when status is failed.",
+            "type": ["string", "null"]
+          },
+          "title": { "type": ["string", "null"] },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "metadata": { "type": "object", "propertyNames": { "type": "string" } },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "extracted_at": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+          "links": { "$ref": "#/components/schemas/DocumentLinks" }
+        },
+        "required": [
+          "doc_id",
+          "tenant_id",
+          "filename",
+          "content_type",
+          "size_bytes",
+          "status",
+          "error",
+          "title",
+          "tags",
+          "metadata",
+          "created_at",
+          "updated_at",
+          "extracted_at",
+          "links"
+        ]
+      },
+      "DocumentListResponse": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/DocumentResponse" } },
+          "next_cursor": {
+            "description": "Pass as `cursor` to fetch the next page; null on the last page.",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "next_cursor"]
+      },
+      "UploadResponse": {
+        "type": "object",
+        "properties": {
+          "doc_id": { "type": "string" },
+          "tenant_id": { "type": "string" },
+          "filename": { "type": "string" },
+          "content_type": { "type": "string" },
+          "blob_url": { "type": "string" },
+          "status": { "type": "string", "enum": ["queued", "succeeded", "failed"] },
+          "links": { "$ref": "#/components/schemas/DocumentLinks" }
+        },
+        "required": ["doc_id", "tenant_id", "filename", "content_type", "blob_url", "status", "links"],
+        "description": "Response of the deprecated `POST /upload` (kept for existing clients)."
+      },
+      "ErrorResponse": { "type": "object", "properties": { "detail": { "type": "string" } }, "required": ["detail"] },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "loc": {
+                  "type": "array",
+                  "items": { "type": ["string", "number"] },
+                  "description": "Where the issue is: `body`, `query` or `path`, then the field."
+                },
+                "msg": { "type": "string" },
+                "type": { "type": "string" }
+              },
+              "required": ["loc", "msg", "type"]
+            }
+          }
+        },
+        "required": ["detail"]
+      },
+      "ProbeResponse": { "type": "object", "properties": { "status": { "type": "string" } }, "required": ["status"] },
+      "DocumentLinks": {
+        "type": "object",
+        "properties": {
+          "self": { "type": "string" },
+          "content": { "type": "string" },
+          "text": { "description": "Present once extraction has succeeded.", "type": ["string", "null"] }
+        },
+        "required": ["self", "content", "text"]
+      },
+      "DocumentPatch": {
+        "type": "object",
+        "properties": {
+          "title": { "anyOf": [{ "type": "string", "maxLength": 255 }, { "type": "null" }] },
+          "tags": {
+            "anyOf": [
+              { "maxItems": 50, "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
+              { "type": "null" }
+            ]
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "additionalProperties": { "type": "string", "maxLength": 1024 },
+                "maxProperties": 50
+              },
+              { "type": "null" }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

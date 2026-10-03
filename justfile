@@ -34,20 +34,25 @@ install:
     uv sync --locked --all-packages
 
 # ---------------------------------------------------------------------------
-# Contracts (contracts/schemas is the source of truth)
+# Contracts: contracts/schemas is the source of truth for the messages, and
+# the document service's zod schemas for contracts/openapi.json (HTTP API)
 # ---------------------------------------------------------------------------
 
-# Regenerate the TypeScript types and the pydantic models from contracts/schemas
+# Regenerate the message types and models, and the OpenAPI document
 contracts:
     node scripts/generate-ts-contracts.mjs
     rm -rf {{ py_generated }}
     {{ datamodel_codegen }} {{ codegen_flags }} --output {{ py_generated }}
+    {{ just_executable() }} ts-build
+    node scripts/generate-openapi.mjs
 
-# Fail if the generated code is out of date with contracts/schemas
+# Fail if any generated contract is out of date with its source
 contracts-check:
     #!/usr/bin/env bash
     set -euo pipefail
     node scripts/generate-ts-contracts.mjs --check
+    {{ just_executable() }} ts-build
+    node scripts/generate-openapi.mjs --check
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     {{ datamodel_codegen }} {{ codegen_flags }} --output "$tmp/generated" 2>/dev/null

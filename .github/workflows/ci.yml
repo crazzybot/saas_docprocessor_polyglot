@@ -43,7 +43,8 @@ jobs:
               - uv.lock
               - ruff.toml
 
-  # Generated code must match contracts/schemas in both languages.
+  # Generated code must match contracts/schemas in both languages, and
+  # contracts/openapi.json the document service's API schemas.
   contracts:
     runs-on: ubuntu-latest
     steps:
