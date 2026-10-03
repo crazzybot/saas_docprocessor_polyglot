@@ -1,0 +1,59 @@
+# KEDA ScaledObject driving event-driven autoscaling of the worker
+# Deployment directly off Azure Service Bus queue depth, including
+# scale-to-zero when the queue is empty.
+#
+# Prerequisites:
+#   * KEDA installed in the cluster: preferably the AKS managed add-on
+#     (`az aks update --enable-keda`, with --enable-workload-identity), or
+#     the Helm chart (`helm install keda kedacore/keda --namespace keda`).
+#   * The Service Bus query is made by the KEDA *operator*, not the worker
+#     pods, so the identity in the TriggerAuthentication below needs:
+#       - a federated credential for the operator's service account:
+#         system:serviceaccount:kube-system:keda-operator (AKS add-on) or
+#         system:serviceaccount:keda:keda-operator (Helm chart above);
+#       - Azure Service Bus Data Owner on the queue (to read its length).
+#     Without the federated credential the scaler cannot authenticate and
+#     the worker never scales up from zero.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker-scaledobject
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: worker-scaledobject
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  scaleTargetRef:
+    name: worker # must match the Deployment name in worker_deployment.yaml
+  minReplicaCount: 0
+  maxReplicaCount: 20
+  cooldownPeriod: 120 # seconds to wait after the last trigger fires before scaling to 0
+  pollingInterval: 15 # seconds between queue-depth checks
+  triggers:
+    - type: azure-servicebus
+      metadata:
+        queueName: extraction-jobs
+        namespace: sb-docprocessor-prod
+        # Target number of active messages per replica; KEDA computes
+        # desiredReplicas = ceil(activeMessageCount / messageCount).
+        messageCount: "5"
+      authenticationRef:
+        name: worker-servicebus-trigger-auth
+---
+# TriggerAuthentication: the KEDA operator authenticates to Service Bus with
+# Azure Workload Identity, using the same Entra identity as the worker pods
+# (via its own federated credential, see Prerequisites above), so no
+# connection string is stored. For stricter least privilege, give KEDA a
+# separate identity so the app identity doesn't hold Data Owner.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: worker-servicebus-trigger-auth
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: worker-servicebus-trigger-auth
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  podIdentity:
+    provider: azure-workload
+    identityId: "00000000-0000-0000-0000-000000000000" # matches serviceaccount.yaml client-id

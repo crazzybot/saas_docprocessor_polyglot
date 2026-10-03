@@ -1,0 +1,15 @@
+# Ensures voluntary disruptions (node drains, cluster upgrades) never take
+# down more than one document-service pod at a time, preserving availability.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: document-service-pdb
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: document-service-pdb
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: document-service

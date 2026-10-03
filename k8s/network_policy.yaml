@@ -1,0 +1,208 @@
+# NetworkPolicy set implementing zero-trust segmentation for the
+# docprocessor namespace:
+#   1. Deny all ingress traffic by default.
+#   2. Explicitly allow the NGINX ingress controller -> document-service.
+#   3. Explicitly allow document-service -> Azure Service Bus, Blob Storage
+#      and Azure Database for PostgreSQL egress (+ DNS).
+#   4. Explicitly allow worker -> Azure Blob Storage egress (+ Service Bus,
+#      since the worker must also consume/produce Service Bus messages;
+#      + DNS for name resolution of *.servicebus.windows.net /
+#      *.blob.core.windows.net).
+#   5. Explicitly allow Azure Monitor managed Prometheus -> worker metrics.
+#
+# Both services also get egress to the in-cluster OpenTelemetry collector
+# (observability namespace, OTLP gRPC 4317); public 443 egress additionally
+# covers Entra ID token requests (login.microsoftonline.com) made by
+# Workload Identity.
+#
+# NOTE: Azure PaaS endpoints (Service Bus, Blob Storage) are reached over
+# the public internet (or Azure Private Link, if configured) using dynamic
+# IP ranges, so egress is scoped by port/protocol (443 HTTPS, 5671 AMQP+TLS)
+# rather than a fixed ipBlock. For tighter control in production, pair this
+# with Private Endpoints + an ipBlock restricted to your VNet's private
+# endpoint CIDR range.
+
+# ---------------------------------------------------------------------------
+# 1. Default deny: no pod in this namespace accepts ingress traffic unless a
+#    more specific NetworkPolicy (below) also selects it and allows it.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: default-deny-ingress
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  podSelector: {} # selects all pods in the namespace
+  policyTypes:
+    - Ingress
+  # No `ingress` rules => all inbound traffic is denied by default.
+---
+# ---------------------------------------------------------------------------
+# 2. Allow only the NGINX ingress controller to reach document-service on its
+#    HTTP port.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller-to-document-service
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: allow-ingress-controller-to-document-service
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: document-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# ---------------------------------------------------------------------------
+# 3. document-service egress: Azure Service Bus (publish lifecycle events,
+#    consume extraction results) + Blob Storage (store/stream/delete
+#    documents) + Azure Database for PostgreSQL (catalog, port 5432) + DNS. Egress is default-denied for any pod once it
+#    is selected by a policy with policyTypes including Egress.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: document-service-egress
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: document-service-egress
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: document-service
+  policyTypes:
+    - Egress
+  egress:
+    # DNS resolution (CoreDNS in kube-system).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Azure Service Bus (AMQP over TLS) + Blob Storage / general HTTPS APIs.
+    # OpenTelemetry collector (OTLP gRPC) for trace export.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 4317
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 5671
+        # Azure Database for PostgreSQL Flexible Server.
+        - protocol: TCP
+          port: 5432
+---
+# ---------------------------------------------------------------------------
+# 4. worker egress: Azure Blob Storage (download source / upload results) +
+#    Azure Service Bus (consume jobs, publish completion events) + DNS.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-egress
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: worker-egress
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # OpenTelemetry collector (OTLP gRPC) for trace export.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 4317
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 5671
+---
+# ---------------------------------------------------------------------------
+# 5. Allow Azure Monitor managed Prometheus to scrape the worker's metrics
+#    port. Scraping of PodMonitor targets (k8s/pod_monitor.yaml) is done by
+#    the `ama-metrics` ReplicaSet pods in kube-system (label rsName=ama-metrics;
+#    verify with `kubectl get pods -n kube-system -l rsName=ama-metrics`).
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-managed-prometheus-to-worker-metrics
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: allow-managed-prometheus-to-worker-metrics
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              rsName: ama-metrics
+      ports:
+        - protocol: TCP
+          port: 9100

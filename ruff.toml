@@ -1,0 +1,13 @@
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "BLE"]
+
+[lint.isort]
+# Workspace members live in subdirectories, so name them explicitly.
+known-first-party = ["docprocessor_shared", "worker_service"]
+
+[lint.per-file-ignores]
+# Generated from contracts/schemas; descriptions become long docstrings.
+"**/generated/*.py" = ["E501"]

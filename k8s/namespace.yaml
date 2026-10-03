@@ -1,0 +1,17 @@
+# Dedicated namespace for the SaaS document processing platform.
+# Labels are used as selectors by the default-deny NetworkPolicy
+# (see network_policy.yaml) and by cluster-wide Pod Security admission.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: docprocessor
+  labels:
+    app.kubernetes.io/name: docprocessor
+    app.kubernetes.io/part-of: saas-docprocessor
+    environment: production
+    # Used by NetworkPolicy podSelector/namespaceSelector matches.
+    network-policy: docprocessor
+    # Enforce the "restricted" Pod Security Standard for every pod
+    # created in this namespace.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

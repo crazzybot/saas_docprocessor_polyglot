@@ -1,0 +1,27 @@
+# uv workspace for the Python projects. This root is "virtual": it is not a
+# package itself, it only lists the members and the repo-wide dev tools.
+# One lockfile, uv.lock, pins every Python dependency.
+
+[tool.uv.workspace]
+members = ["libs/py-shared", "services/worker-service"]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.3",
+    "pytest-asyncio==0.24.0",
+    "ruff==0.16.10",
+    # Validates producer output against contracts/schemas in the contract tests.
+    "jsonschema==4.23.0",
+    "rfc3339-validator==0.1.4", # lets jsonschema check `format: date-time`
+]
+
+[tool.pytest.ini_options]
+testpaths = ["libs/py-shared/tests", "services/worker-service/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# Test modules in different members may share a basename.
+addopts = "--import-mode=importlib"
+filterwarnings = [
+    # PyMuPDF's SWIG bindings, on import.
+    "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
+]

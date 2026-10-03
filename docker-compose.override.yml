@@ -1,0 +1,29 @@
+# Local observability, merged automatically into docker-compose.yml by
+# `docker compose up`. Both services export OpenTelemetry spans and logs over
+# OTLP gRPC to the .NET Aspire Dashboard, so an upload and the worker run it
+# triggers show up as one trace, with each log line linked to its span.
+#
+#   UI: http://localhost:18888  (Traces, Structured logs)
+#
+# To run without it: docker compose -f docker-compose.yml up
+
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: 'http://aspire-dashboard:18889'
+  OTEL_LOGS_EXPORTER: 'otlp'
+
+services:
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: 'true' # local only: no login, no OTLP API key
+    ports: ['18888:18888'] # UI; OTLP gRPC (18889) stays on the compose network
+
+  document-service:
+    depends_on: [aspire-dashboard]
+    environment:
+      <<: *otel-env
+
+  worker:
+    depends_on: [aspire-dashboard]
+    environment:
+      <<: *otel-env

@@ -1,0 +1,5 @@
+{
+  // Solution file: `tsc -b` builds ts-shared first, then the services.
+  "files": [],
+  "references": [{ "path": "libs/ts-shared" }, { "path": "services/document-service" }]
+}

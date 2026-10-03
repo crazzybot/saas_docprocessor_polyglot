@@ -1,0 +1,58 @@
+# Ingress exposing the document service's /documents API (and the deprecated
+# /upload alias) externally via the
+# NGINX ingress controller, with TLS termination managed by cert-manager,
+# request rate limiting, and permissive-but-explicit CORS headers for the SaaS
+# frontend. Probe endpoints (/healthz, /readyz) are deliberately not routed:
+# the kubelet reaches them on the pod directly.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: docprocessor-ingress
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: docprocessor-ingress
+    app.kubernetes.io/part-of: saas-docprocessor
+  annotations:
+    # cert-manager automatically provisions/renews a TLS certificate for the
+    # host(s) below using the referenced ClusterIssuer.
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Rate limiting: cap each client IP at 20 requests/second with bursts
+    # smoothed by a 5x multiplier, to protect the API from abuse.
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    nginx.ingress.kubernetes.io/proxy-body-size: "30m" # slightly above the 25MB app-level limit
+    # CORS configuration for the SaaS frontend origin.
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://app.docprocessor.example.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PATCH, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type, If-Match, X-Tenant-ID, X-Correlation-ID"
+    # Let the browser read the ETag (for If-Match) and Location (after upload).
+    nginx.ingress.kubernetes.io/cors-expose-headers: "ETag, Location, X-Correlation-ID"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    # Force HTTPS.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.docprocessor.example.com
+      secretName: docprocessor-tls
+  rules:
+    - host: api.docprocessor.example.com
+      http:
+        paths:
+          - path: /documents
+            pathType: Prefix
+            backend:
+              service:
+                name: document-service
+                port:
+                  name: http
+          # Deprecated alias of POST /documents, kept for existing clients.
+          - path: /upload
+            pathType: Exact
+            backend:
+              service:
+                name: document-service
+                port:
+                  name: http

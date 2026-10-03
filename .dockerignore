@@ -1,0 +1,19 @@
+# Keep local state and anything the images don't need out of the build context.
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.env
+**/*.tsbuildinfo
+.git
+.github
+.pytest_cache
+.ruff_cache
+coverage
+k8s
+contracts/examples
+services/*/test
+services/*/tests
+libs/*/test
+libs/*/tests

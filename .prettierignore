@@ -1,0 +1,9 @@
+dist
+node_modules
+pnpm-lock.yaml
+coverage
+k8s
+local
+*.md
+.venv
+uv.lock

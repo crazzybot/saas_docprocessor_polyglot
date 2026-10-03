@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Which toolchains a change touches. A schema change touches both, since
+  # both languages generate code from it.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      typescript: ${{ steps.filter.outputs.typescript }}
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared: &shared
+              - contracts/**
+              - justfile
+              - .github/workflows/**
+            typescript:
+              - *shared
+              - services/document-service/**
+              - libs/ts-shared/**
+              - scripts/**
+              - package.json
+              - pnpm-lock.yaml
+              - pnpm-workspace.yaml
+              - tsconfig*.json
+              - eslint.config.js
+              - vitest.*
+              - .prettier*
+            python:
+              - *shared
+              - services/worker-service/**
+              - libs/py-shared/**
+              - pyproject.toml
+              - uv.lock
+              - ruff.toml
+
+  # Generated code must match contracts/schemas in both languages.
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v3
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v6
+      - run: pnpm install --frozen-lockfile
+      - run: just contracts-check
+
+  typescript:
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
+    runs-on: ubuntu-latest
+    services:
+      # Disposable database for services/document-service/test/postgres-repository.test.ts.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: docprocessor
+          POSTGRES_PASSWORD: docprocessor
+          POSTGRES_DB: docprocessor
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U docprocessor"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v3
+      # Installs the pnpm version pinned in package.json's packageManager.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # --frozen-lockfile fails if pnpm-lock.yaml is out of date with the manifests.
+      - run: pnpm install --frozen-lockfile
+      - run: just ts-lint ts-fmt-check ts-typecheck
+      - name: Test
+        env:
+          TEST_DATABASE_URL: postgresql://docprocessor:docprocessor@127.0.0.1:5432/docprocessor
+        run: just ts-test
+
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v3
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      # --locked fails if uv.lock is out of date with the pyproject files.
+      - run: uv sync --locked --all-packages
+      - run: just py-lint py-fmt-check
+      - run: just py-test
+
+  docker-build:
+    needs: changes
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: document-service
+            toolchain: typescript
+            smoke: node --input-type=module -e "await import('./dist/app.module.js'); await import('./dist/infrastructure.js')"
+          # Also checks the OCR system dependency (tesseract) is installed.
+          - service: worker-service
+            toolchain: python
+            smoke: python -c "import worker_service.main, pytesseract; pytesseract.get_tesseract_version()"
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs[matrix.toolchain] == 'true'
+      - name: Build ${{ matrix.service }} image
+        if: needs.changes.outputs[matrix.toolchain] == 'true'
+        run: docker build -f services/${{ matrix.service }}/Dockerfile -t ${{ matrix.service }}:ci .
+      # Tests run with every package of a toolchain installed, so a module
+      # missing from one image would pass them. Import the entry point inside
+      # the image to catch that.
+      - name: Smoke-test ${{ matrix.service }} image
+        if: needs.changes.outputs[matrix.toolchain] == 'true'
+        run: docker run --rm --entrypoint sh ${{ matrix.service }}:ci -c "${{ matrix.smoke }}"

@@ -1,0 +1,56 @@
+# Configuration shared by the document and worker services. Nothing here is
+# sensitive: both services authenticate to Storage, Service Bus and PostgreSQL with
+# Microsoft Entra ID via Azure AD Workload Identity (see serviceaccount.yaml),
+# so no connection strings or keys are stored in the cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docprocessor-config
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: docprocessor-config
+    app.kubernetes.io/part-of: saas-docprocessor
+data:
+  # Azure Service Bus (fully qualified namespace => Entra ID auth)
+  SERVICE_BUS_NAMESPACE: "sb-docprocessor-prod.servicebus.windows.net"
+  SERVICE_BUS_QUEUE_NAME: "extraction-jobs"
+  SERVICE_BUS_RESULTS_TOPIC_NAME: "extraction-results"
+  # Document service: lifecycle events out, extraction results in.
+  SERVICE_BUS_EVENTS_TOPIC_NAME: "document-events"
+  SERVICE_BUS_RESULTS_SUBSCRIPTION_NAME: "document-service"
+
+  # Azure Blob Storage (account URL => Entra ID auth)
+  STORAGE_ACCOUNT_URL: "https://stdocprocessorprod.blob.core.windows.net"
+  BLOB_CONTAINER_NAME: "raw-documents"
+  RESULTS_CONTAINER_NAME: "extraction-results"
+
+  # Document catalog: Azure Database for PostgreSQL Flexible Server with
+  # Entra ID auth. The DSN has no password; the user is the PostgreSQL role
+  # created for the managed identity (see serviceaccount.yaml).
+  DATABASE_URL: "postgresql://docprocessor-identity@psql-docprocessor-prod.postgres.database.azure.com:5432/docprocessor?sslmode=require"
+  POSTGRES_ENTRA_AUTH: "true"
+
+  # Microsoft Entra ID token validation (document service). One Entra ID tenant
+  # per customer: add each onboarded customer's tenant ID (comma-separated).
+  # An empty list rejects every token.
+  AZURE_AD_AUDIENCE: "api://saas-docprocessor"
+  AZURE_AD_ALLOWED_TENANT_IDS: "11111111-1111-1111-1111-111111111111"
+  AZURE_AD_REQUIRED_SCOPE: "Documents.Upload"
+
+  # Upload constraints
+  MAX_UPLOAD_SIZE_MB: "25"
+
+  # Worker tuning. Prefetch stays 0: prefetched messages are not lock-renewed
+  # while buffered. Concurrency is sized to the worker's 2-CPU limit.
+  MAX_CONCURRENCY: "4"
+  PREFETCH_COUNT: "0"
+  MAX_MESSAGE_COUNT: "10"
+  MAX_WAIT_TIME_SECONDS: "5"
+  MAX_DELIVERY_ATTEMPTS: "3"
+  MAX_LOCK_RENEWAL_SECONDS: "600"
+  METRICS_PORT: "9100"
+  HEALTH_PORT: "8080"
+
+  # Observability
+  LOG_LEVEL: "INFO"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"

@@ -1,0 +1,21 @@
+# Azure Monitor managed Prometheus scrape config for the worker's metrics
+# (messages_processed_total, extraction_duration_seconds). Managed Prometheus
+# uses its own CRD group (azmonitoring.coreos.com), not the upstream
+# monitoring.coreos.com one. The scrape is performed by the `ama-metrics`
+# pods in kube-system, which network_policy.yaml allows to reach port 9100.
+apiVersion: azmonitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: worker-metrics
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: worker-metrics
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

@@ -1,0 +1,8 @@
+{
+  "doc_id": "doc-1",
+  "tenant_id": "tenant-1",
+  "status": "succeeded",
+  "result_blob_url": "https://acct.blob.core.windows.net/extraction-results/tenant-1/doc-1.json",
+  "error": null,
+  "completed_at": "2026-01-01T00:00:00.123456+00:00"
+}

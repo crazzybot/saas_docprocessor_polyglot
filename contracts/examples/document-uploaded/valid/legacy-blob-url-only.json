@@ -1,0 +1,6 @@
+{
+  "doc_id": "d",
+  "tenant_id": "t",
+  "content_type": "application/pdf",
+  "blob_url": "https://acct.blob.core.windows.net/raw-documents/t/d/my%20report.pdf"
+}

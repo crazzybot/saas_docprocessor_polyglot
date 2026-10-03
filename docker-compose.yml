@@ -1,0 +1,73 @@
+# Local end-to-end stack: Azurite (Blob Storage) + Azure Service Bus emulator
+# (backed by Azure SQL Edge) + PostgreSQL (document catalog) + both services
+# built from their Dockerfiles.
+#
+#   just up        (docker compose up --build)
+#   curl -H "X-Tenant-ID: acme" -F "file=@sample.pdf;type=application/pdf" localhost:8000/documents
+#
+# Auth is disabled; the tenant comes from X-Tenant-ID (default local-tenant).
+# The queue's MaxDeliveryCount (10) is above the worker's MAX_DELIVERY_ATTEMPTS
+# (3) so the worker, not the broker, decides when to dead-letter.
+
+x-azure-dev-env: &azure-dev-env
+  AZURE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;'
+  SERVICE_BUS_CONNECTION_STRING: 'Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;'
+  LOG_LEVEL: 'INFO'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: docprocessor
+      POSTGRES_PASSWORD: docprocessor
+      POSTGRES_DB: docprocessor
+    ports: ['${POSTGRES_HOST_PORT:-5432}:5432'] # override if 5432 is taken locally
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'docprocessor']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+    ports: ['10000:10000']
+
+  sqledge:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_SA_PASSWORD: 'LocalDev_Passw0rd!'
+
+  servicebus-emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    depends_on: [sqledge]
+    restart: on-failure # retries until SQL Edge accepts connections
+    environment:
+      SQL_SERVER: sqledge
+      MSSQL_SA_PASSWORD: 'LocalDev_Passw0rd!'
+      ACCEPT_EULA: 'Y'
+    volumes:
+      - ./local/servicebus-emulator-config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+    ports: ['5672:5672']
+
+  document-service:
+    build: { context: ., dockerfile: services/document-service/Dockerfile }
+    depends_on:
+      postgres: { condition: service_healthy }
+      azurite: { condition: service_started }
+      servicebus-emulator: { condition: service_started }
+    restart: on-failure # safety net; the relay and consumer retry on their own
+    environment:
+      <<: *azure-dev-env
+      AUTH_ENABLED: 'false'
+      DATABASE_URL: 'postgresql://docprocessor:docprocessor@postgres:5432/docprocessor'
+    ports: ['8000:8000']
+
+  worker:
+    build: { context: ., dockerfile: services/worker-service/Dockerfile }
+    depends_on: [azurite, servicebus-emulator]
+    restart: on-failure # safety net: the worker itself retries until Service Bus is ready
+    environment:
+      <<: *azure-dev-env
+    ports: ['9100:9100', '8080:8080']

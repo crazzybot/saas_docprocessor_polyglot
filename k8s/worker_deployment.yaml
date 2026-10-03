@@ -1,0 +1,136 @@
+# Deployment for the text-extraction worker microservice.
+#
+# NOTE on autoscaling: this Deployment sets a static `replicas: 2` baseline.
+# For event-driven autoscaling based on Service Bus queue depth (including
+# scale-to-zero when there is no backlog), apply k8s/keda_scaledobject.yaml
+# instead of relying on a HorizontalPodAutoscaler here. To switch:
+#   1. Keep this Deployment's `replicas` field as-is (KEDA manages it once
+#      the ScaledObject targets this Deployment by name).
+#   2. Do NOT also attach an HPA directly to this Deployment - KEDA creates
+#      and owns its own HPA object under the hood (visible via
+#      `kubectl get hpa -n docprocessor`) once the ScaledObject is applied.
+#   3. `kubectl apply -f k8s/keda_scaledobject.yaml` - KEDA will then scale
+#      `worker` between minReplicaCount (0) and maxReplicaCount (20) based on
+#      the `extraction-jobs` queue's active message count.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/part-of: saas-docprocessor
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker
+        app.kubernetes.io/part-of: saas-docprocessor
+        app.kubernetes.io/component: worker
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: docprocessor-workload-identity
+      # Give in-flight message processing time to finish (drain) before the
+      # kubelet sends SIGKILL; Worker.run() (services/worker-service/worker_service/consumer.py) drains in-flight tasks
+      # on receipt of SIGTERM.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: worker
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: worker
+      containers:
+        - name: worker
+          image: acrdocprocessor.azurecr.io/worker-service:1.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: docprocessor-config
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+          # Probes hit the worker's own event loop (aiohttp), not the
+          # Prometheus thread: /healthz fails if the consumer loop's
+          # heartbeat goes stale; /readyz also requires a connected receiver.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-metrics
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: worker-metrics
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  type: ClusterIP
+  clusterIP: None # headless: scraped directly per-pod by Prometheus
+  selector:
+    app.kubernetes.io/name: worker
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+      protocol: TCP

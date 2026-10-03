@@ -1,0 +1,42 @@
+{
+  "name": "@docprocessor/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Code shared by every service: message contracts, settings, Azure clients, logging, telemetry.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc -b && tsc -p test/tsconfig.json",
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.13.3",
+    "@azure/logger": "^1.4.0",
+    "@azure/service-bus": "^7.9.5",
+    "@azure/storage-blob": "^12.34.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api-logs": "^0.222.0",
+    "@opentelemetry/core": "^2.11.0",
+    "@opentelemetry/exporter-logs-otlp-grpc": "^0.222.0",
+    "@opentelemetry/exporter-trace-otlp-grpc": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-logs": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "@opentelemetry/sdk-trace-node": "^2.11.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@azure/core-rest-pipeline": "^1.25.0"
+  }
+}

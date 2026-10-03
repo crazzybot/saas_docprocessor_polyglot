@@ -1,0 +1,11 @@
+# TypeScript projects. Python projects live alongside them as uv workspace
+# members (pyproject.toml); each tool ignores the other's directories.
+packages:
+  - libs/ts-shared
+  - services/document-service
+
+# Install scripts that are not needed: protobufjs's only checks versions, and
+# esbuild (a dev-only dependency of vite) ships prebuilt platform binaries.
+ignoredBuiltDependencies:
+  - esbuild
+  - protobufjs

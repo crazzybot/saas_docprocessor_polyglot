@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docprocessor.example.com/contracts/extraction-completed.schema.json",
+  "title": "ExtractionCompletedEvent",
+  "description": "Published by the worker on the extraction-results topic once a job succeeds or fails for good. message_id is \"{doc_id}:{status}\"; application properties: tenant_id, doc_id, status. A missing completed_at means \"now\" to readers.",
+  "type": "object",
+  "properties": {
+    "doc_id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["succeeded", "failed"] },
+    "result_blob_url": {
+      "description": "extraction-results/{tenant_id}/{doc_id}.json for a succeeded event; null for a failed one.",
+      "type": ["string", "null"],
+      "default": null
+    },
+    "error": { "description": "The reason, for a failed event.", "type": ["string", "null"], "default": null },
+    "completed_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["doc_id", "tenant_id", "status"]
+}

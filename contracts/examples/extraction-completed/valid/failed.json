@@ -1,0 +1,8 @@
+{
+  "doc_id": "doc-1",
+  "tenant_id": "tenant-1",
+  "status": "failed",
+  "result_blob_url": null,
+  "error": "extraction failed: Invalid PDF structure.",
+  "completed_at": "2026-01-01T00:00:00Z"
+}

@@ -1,0 +1,7 @@
+# Optional: `mise install` provides every toolchain this repo needs, at the
+# versions CI uses. (pnpm itself comes from Corepack, pinned in package.json.)
+[tools]
+node = "24"
+python = "3.11"
+uv = "0.12.5"
+just = "1.57"

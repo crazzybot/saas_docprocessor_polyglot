@@ -1,0 +1,13 @@
+{
+  "event_type": "document.uploaded",
+  "doc_id": "d",
+  "tenant_id": "t",
+  "filename": "a.pdf",
+  "content_type": "application/pdf",
+  "size_bytes": 8,
+  "blob_name": "t/d/a.pdf",
+  "blob_url": "https://acct.blob.core.windows.net/raw-documents/t/d/a.pdf",
+  "blob_container": "raw-documents",
+  "correlation_id": "c",
+  "submitted_at": "2026-01-01T00:00:00.123456+00:00"
+}
