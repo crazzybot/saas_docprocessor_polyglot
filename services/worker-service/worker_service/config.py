@@ -6,7 +6,9 @@ Azure access uses Workload Identity, so no secrets are needed in AKS.
 
 from __future__ import annotations
 
-from pydantic import Field
+from typing import Self
+
+from pydantic import Field, model_validator
 
 from docprocessor_shared.settings import AzureServiceSettings
 
@@ -26,6 +28,11 @@ class Settings(AzureServiceSettings):
     max_wait_time_seconds: int = Field(default=5, ge=1)
     max_delivery_attempts: int = Field(default=3, ge=1)
     max_lock_renewal_seconds: int = Field(default=600, ge=1)
+    # Deadline for one job's download -> extract -> upload; past it the
+    # document is reported failed and the message dead-lettered. Must be
+    # below MAX_LOCK_RENEWAL_SECONDS so the job times out while its message
+    # is still locked, instead of losing the lock and being redelivered.
+    processing_timeout_seconds: int = Field(default=300, ge=1)
 
     metrics_port: int = Field(default=9100)
     health_port: int = Field(default=8080)
@@ -37,6 +44,12 @@ class Settings(AzureServiceSettings):
     # shutdown; /readyz reports not-ready meanwhile.
     connect_retry_initial_seconds: float = Field(default=1.0, gt=0)
     connect_retry_max_seconds: float = Field(default=30.0, gt=0)
+
+    @model_validator(mode="after")
+    def _timeout_fits_in_lock_renewal(self) -> Self:
+        if self.processing_timeout_seconds >= self.max_lock_renewal_seconds:
+            raise ValueError("PROCESSING_TIMEOUT_SECONDS must be less than MAX_LOCK_RENEWAL_SECONDS")
+        return self
 
 
 settings = Settings()

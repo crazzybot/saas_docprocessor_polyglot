@@ -121,7 +121,7 @@ class Worker:
                 },
             )
             await self._publish_failure_event(service_bus_client, job, str(exc))
-            await receiver.dead_letter_message(message, reason="PermanentProcessingError", error_description=str(exc))
+            await receiver.dead_letter_message(message, reason=type(exc).__name__, error_description=str(exc))
             MESSAGES_PROCESSED_TOTAL.labels(outcome="dead_lettered", content_type=content_type).inc()
         except Exception as exc:  # noqa: BLE001 - top-level guard for the consumer loop
             # Transient failure: if we've exhausted retries, dead-letter;

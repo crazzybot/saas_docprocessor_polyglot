@@ -115,6 +115,39 @@ async def test_successful_job_publishes_succeeded_event(monkeypatch: pytest.Monk
     assert publish.call_args.kwargs["status_value"] == "succeeded"
 
 
+async def test_job_past_deadline_times_out_without_success_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "processing_timeout_seconds", 0.05)
+    monkeypatch.setattr(processing, "download_blob", AsyncMock(return_value=b"%PDF"))
+
+    async def slow_extract(*_: object) -> str:
+        await asyncio.sleep(10)
+        return "never"
+
+    monkeypatch.setattr(processing, "extract_text", slow_extract)
+    publish = AsyncMock()
+    monkeypatch.setattr(processing, "publish_completion_event", publish)
+
+    with pytest.raises(processing.ProcessingTimeoutError, match="timeout"):
+        await asyncio.wait_for(
+            processing.process_job_message(_event(), blob_service_client=MagicMock(), service_bus_client=MagicMock()),
+            timeout=5,
+        )
+    publish.assert_not_called()
+
+
+async def test_io_timeout_inside_deadline_stays_transient(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(processing, "download_blob", AsyncMock(side_effect=TimeoutError("socket timeout")))
+
+    with pytest.raises(TimeoutError) as excinfo:
+        await processing.process_job_message(_event(), blob_service_client=MagicMock(), service_bus_client=MagicMock())
+    assert not isinstance(excinfo.value, processing.ProcessingTimeoutError)
+
+
+def test_processing_timeout_must_be_below_lock_renewal() -> None:
+    with pytest.raises(ValueError, match="PROCESSING_TIMEOUT_SECONDS"):
+        type(settings)(processing_timeout_seconds=600, max_lock_renewal_seconds=600)
+
+
 # --------------------------------------------------------------------------
 # Message handling outcomes
 # --------------------------------------------------------------------------
@@ -164,6 +197,25 @@ async def test_permanent_failure_publishes_failed_event_then_dead_letters(monkey
     assert publish.call_args.kwargs["status_value"] == "failed"
     assert publish.call_args.kwargs["error"] == "corrupt file"
     receiver.dead_letter_message.assert_awaited_once()
+
+
+async def test_timed_out_job_publishes_failed_event_then_dead_letters(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        consumer,
+        "process_job_message",
+        AsyncMock(side_effect=processing.ProcessingTimeoutError("processing exceeded 300s timeout")),
+    )
+    publish = AsyncMock()
+    monkeypatch.setattr(consumer, "publish_completion_event", publish)
+    receiver = _receiver()
+
+    await consumer.Worker()._handle_message(
+        receiver, _message(json.dumps(_job())), blob_service_client=MagicMock(), service_bus_client=MagicMock()
+    )
+
+    assert publish.call_args.kwargs["status_value"] == "failed"
+    assert receiver.dead_letter_message.call_args.kwargs["reason"] == "ProcessingTimeoutError"
+    receiver.abandon_message.assert_not_called()
 
 
 async def test_failure_event_publish_error_still_dead_letters(monkeypatch: pytest.MonkeyPatch) -> None:

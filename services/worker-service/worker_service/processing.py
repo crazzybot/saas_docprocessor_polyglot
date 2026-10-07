@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -32,6 +33,11 @@ tracer = get_tracer(__name__)
 
 class PermanentProcessingError(Exception):
     """Raised for failures that will never succeed on retry (dead-letter it)."""
+
+
+class ProcessingTimeoutError(PermanentProcessingError):
+    """The job ran past PROCESSING_TIMEOUT_SECONDS. Treated as permanent: a
+    document that is too slow once will be too slow on every retry."""
 
 
 def parse_job(body: str) -> DocumentUploadedEvent:
@@ -107,6 +113,55 @@ async def publish_completion_event(
         await sender.send_messages(message)
 
 
+async def _extract_and_store(
+    job: DocumentUploadedEvent,
+    *,
+    blob_service_client: BlobServiceClient,
+    blob_container: str,
+    blob_name: str,
+) -> str:
+    """Download the source blob, extract its text and upload the result JSON;
+    returns the result blob URL."""
+    content_type = job.content_type
+
+    with tracer.start_as_current_span("download_blob"):
+        try:
+            data = await download_blob(blob_service_client, blob_container, blob_name)
+        except ResourceNotFoundError as exc:
+            raise PermanentProcessingError(f"source blob not found: {blob_name}") from exc
+        # Other storage failures (network blips, throttling) propagate
+        # unchanged so the caller's retry/dead-letter policy applies.
+
+    start_time = time.perf_counter()
+    try:
+        with tracer.start_as_current_span("extract_text"):
+            extracted_text = await extract_text(content_type, data)
+    except UnsupportedContentTypeError as exc:
+        raise PermanentProcessingError(str(exc)) from exc
+    except Exception as exc:
+        raise PermanentProcessingError(f"extraction failed: {exc}") from exc
+    finally:
+        EXTRACTION_DURATION_SECONDS.labels(content_type=content_type).observe(time.perf_counter() - start_time)
+
+    result_payload = {
+        "doc_id": job.doc_id,
+        "tenant_id": job.tenant_id,
+        "filename": job.filename,
+        "content_type": content_type,
+        "extracted_text": extracted_text,
+        "char_count": len(extracted_text),
+        "extracted_at": datetime.now(UTC).isoformat(),
+    }
+
+    with tracer.start_as_current_span("upload_result"):
+        return await upload_result_json(
+            blob_service_client,
+            settings.results_container_name,
+            result_blob_name(job.tenant_id, job.doc_id),
+            result_payload,
+        )
+
+
 async def process_job_message(
     job: DocumentUploadedEvent,
     *,
@@ -117,7 +172,9 @@ async def process_job_message(
     """Process a single extraction job: download -> extract -> upload -> notify.
 
     Raises `PermanentProcessingError` for failures that should be dead-lettered
-    rather than retried (e.g. unsupported content type, corrupt or missing file).
+    rather than retried (e.g. unsupported content type, corrupt or missing file),
+    and its `ProcessingTimeoutError` subclass when the job runs past
+    PROCESSING_TIMEOUT_SECONDS.
     """
     doc_id = job.doc_id
     tenant_id = job.tenant_id
@@ -142,42 +199,19 @@ async def process_job_message(
         except ValueError as exc:
             raise PermanentProcessingError(str(exc)) from exc
 
-        with tracer.start_as_current_span("download_blob"):
-            try:
-                data = await download_blob(blob_service_client, blob_container, blob_name)
-            except ResourceNotFoundError as exc:
-                raise PermanentProcessingError(f"source blob not found: {blob_name}") from exc
-            # Other storage failures (network blips, throttling) propagate
-            # unchanged so the caller's retry/dead-letter policy applies.
-
-        start_time = time.perf_counter()
+        # The deadline stops before the success event: once that is sent the
+        # job has succeeded and must not also be reported as timed out.
+        deadline = asyncio.timeout(settings.processing_timeout_seconds)
         try:
-            with tracer.start_as_current_span("extract_text"):
-                extracted_text = await extract_text(content_type, data)
-        except UnsupportedContentTypeError as exc:
-            raise PermanentProcessingError(str(exc)) from exc
-        except Exception as exc:
-            raise PermanentProcessingError(f"extraction failed: {exc}") from exc
-        finally:
-            EXTRACTION_DURATION_SECONDS.labels(content_type=content_type).observe(time.perf_counter() - start_time)
-
-        result_payload = {
-            "doc_id": doc_id,
-            "tenant_id": tenant_id,
-            "filename": job.filename,
-            "content_type": content_type,
-            "extracted_text": extracted_text,
-            "char_count": len(extracted_text),
-            "extracted_at": datetime.now(UTC).isoformat(),
-        }
-
-        with tracer.start_as_current_span("upload_result"):
-            result_blob_url = await upload_result_json(
-                blob_service_client,
-                settings.results_container_name,
-                result_blob_name(tenant_id, doc_id),
-                result_payload,
-            )
+            async with deadline:
+                result_blob_url = await _extract_and_store(
+                    job, blob_service_client=blob_service_client, blob_container=blob_container, blob_name=blob_name
+                )
+        except TimeoutError as exc:
+            if not deadline.expired():
+                raise  # a TimeoutError from the I/O itself: transient, retry
+            span.set_attribute("timed_out", True)
+            raise ProcessingTimeoutError(f"processing exceeded {settings.processing_timeout_seconds}s timeout") from exc
 
         await publish_completion_event(
             service_bus_client,
