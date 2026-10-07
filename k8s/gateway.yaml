@@ -1,0 +1,112 @@
+# Public entry point: a Kubernetes Gateway API Gateway served by the AKS
+# application routing add-on's Gateway API implementation (GatewayClass
+# `approuting-istio`, a meshless Istio control plane managing Envoy proxies).
+# It replaces the retired ingress-nginx controller.
+#
+# Prerequisites (cluster):
+#   * Managed Gateway API CRDs and the add-on:
+#       az aks update --enable-gateway-api --enable-app-routing-istio
+#     AKS 1.36+ is required: it installs Gateway API v1.5.1, the first bundle
+#     whose standard channel has the HTTPRoute CORS filter used in
+#     httproute.yaml (AKS only allows standard-channel CRDs).
+#   * cert-manager >= 1.15 with Gateway API support turned on
+#     (Helm value `config.enableGatewayAPI=true`), and the ClusterIssuer in
+#     cluster_issuer.yaml.
+#   * A static public IP `pip-docprocessor-gateway-prod` in resource group
+#     `rg-docprocessor-prod-network`, with the cluster identity granted
+#     Network Contributor on that group, so the address (and the DNS record
+#     for the API host) survives the Gateway being recreated.
+#
+# What the old Ingress did and where it lives now:
+#   * TLS + HTTP->HTTPS redirect: the listeners and redirect route below.
+#   * CORS: the CORS filter on the HTTPRoute (httproute.yaml).
+#   * Body size limit: enforced by document-service itself (MAX_UPLOAD_SIZE_MB;
+#     multer aborts the upload mid-stream). The add-on has no body size limit.
+#   * Rate limiting: the add-on supports none (no EnvoyFilter); it moves into
+#     document-service, keyed per tenant.
+#
+# The Gateway lives in its own namespace so the proxies stay outside the
+# docprocessor namespace's default-deny policy; network_policy.yaml admits
+# them to document-service by namespace and the gateway-name pod label.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: docprocessor-gateway
+  labels:
+    app.kubernetes.io/name: docprocessor-gateway
+    app.kubernetes.io/part-of: saas-docprocessor
+    environment: production
+    # The add-on generates the proxy pods; enforce baseline and only warn on
+    # restricted, since their securityContext isn't ours to set.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: docprocessor
+  namespace: docprocessor-gateway
+  labels:
+    app.kubernetes.io/name: docprocessor-gateway
+    app.kubernetes.io/part-of: saas-docprocessor
+  annotations:
+    # cert-manager issues a Certificate for each HTTPS listener with a
+    # hostname, into the secret its certificateRefs names.
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Copied by Istio onto the generated LoadBalancer Service.
+    service.beta.kubernetes.io/azure-pip-name: "pip-docprocessor-gateway-prod"
+    service.beta.kubernetes.io/azure-load-balancer-resource-group: "rg-docprocessor-prod-network"
+spec:
+  gatewayClassName: approuting-istio
+  listeners:
+    # Plain HTTP only redirects to HTTPS and serves cert-manager's HTTP-01
+    # challenges, whose routes cert-manager creates in this namespace.
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: api.docprocessor.example.com
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: api.docprocessor.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: docprocessor-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: docprocessor
+---
+# Force HTTPS. cert-manager's challenge routes match an exact
+# /.well-known/acme-challenge/<token> path, which takes precedence over
+# this prefix match.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: https-redirect
+  namespace: docprocessor-gateway
+  labels:
+    app.kubernetes.io/name: https-redirect
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  parentRefs:
+    - name: docprocessor
+      sectionName: http
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

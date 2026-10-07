@@ -1,0 +1,26 @@
+# Let's Encrypt issuer for the Gateway's TLS certificate (gateway.yaml).
+# HTTP-01 challenges are answered through the Gateway itself: cert-manager
+# creates a temporary HTTPRoute on the `http` listener for each challenge.
+# Requires cert-manager >= 1.15 installed with `config.enableGatewayAPI=true`.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  labels:
+    app.kubernetes.io/name: letsencrypt-prod
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Receives expiry and account notices from Let's Encrypt.
+    email: platform@docprocessor.example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - kind: Gateway
+                name: docprocessor
+                namespace: docprocessor-gateway
+                sectionName: http

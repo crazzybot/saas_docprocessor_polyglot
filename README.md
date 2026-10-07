@@ -22,7 +22,7 @@ The services come from two single-language sibling repos,
 this one.
 
 ```
-  Client ──HTTPS──▶ NGINX Ingress ──▶ document-service (TypeScript)
+  Client ──HTTPS──▶ Gateway (AKS app routing, Gateway API) ──▶ document-service (TypeScript)
                                         │  1. raw file ──▶ Blob: raw-documents
                                         │  2. document + event, one transaction ──▶ PostgreSQL (documents, outbox)
                                         │  3. outbox relay ──▶ topic document-events
@@ -344,8 +344,13 @@ just images && just smoke            # both, then import each image's entry poin
 The manifests in `k8s/` (namespace with the restricted Pod Security
 Standard, Workload Identity service account, ConfigMap, both Deployments,
 HPA for the document service, KEDA ScaledObject for the worker,
-PodDisruptionBudget, PodMonitor, NetworkPolicies, Ingress) are unchanged from
-the single-language repos and don't depend on either language.
+PodDisruptionBudget, PodMonitor, NetworkPolicies) are unchanged from the
+single-language repos and don't depend on either language. Public traffic
+enters through a Gateway API `Gateway` served by the AKS application routing
+add-on (`approuting-istio`, AKS 1.36+), with TLS from cert-manager; see the
+prerequisites at the top of [k8s/gateway.yaml](k8s/gateway.yaml). It replaces
+the retired ingress-nginx; rate limiting, which that add-on doesn't offer,
+belongs in document-service.
 
 ```bash
 kubectl apply -f k8s/namespace.yaml
@@ -353,7 +358,7 @@ kubectl apply -f k8s/serviceaccount.yaml -f k8s/configmap.yaml
 kubectl apply -f k8s/document_service_deployment.yaml -f k8s/worker_deployment.yaml
 kubectl apply -f k8s/network_policy.yaml -f k8s/poddisruptionbudget.yaml -f k8s/pod_monitor.yaml
 kubectl apply -f k8s/hpa.yaml -f k8s/keda_scaledobject.yaml
-kubectl apply -f k8s/ingress.yaml
+kubectl apply -f k8s/cluster_issuer.yaml -f k8s/gateway.yaml -f k8s/httproute.yaml
 ```
 
 Cluster prerequisites, the Azure setup (managed identity, RBAC roles,

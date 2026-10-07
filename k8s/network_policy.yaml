@@ -1,7 +1,7 @@
 # NetworkPolicy set implementing zero-trust segmentation for the
 # docprocessor namespace:
 #   1. Deny all ingress traffic by default.
-#   2. Explicitly allow the NGINX ingress controller -> document-service.
+#   2. Explicitly allow the public Gateway's proxies -> document-service.
 #   3. Explicitly allow document-service -> Azure Service Bus, Blob Storage
 #      and Azure Database for PostgreSQL egress (+ DNS).
 #   4. Explicitly allow worker -> Azure Blob Storage egress (+ Service Bus,
@@ -41,16 +41,17 @@ spec:
   # No `ingress` rules => all inbound traffic is denied by default.
 ---
 # ---------------------------------------------------------------------------
-# 2. Allow only the NGINX ingress controller to reach document-service on its
-#    HTTP port.
+# 2. Allow only the public Gateway's Envoy proxies (gateway.yaml) to reach
+#    document-service on its HTTP port. The add-on labels the proxy pods it
+#    generates with the name of their Gateway.
 # ---------------------------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-ingress-controller-to-document-service
+  name: allow-gateway-to-document-service
   namespace: docprocessor
   labels:
-    app.kubernetes.io/name: allow-ingress-controller-to-document-service
+    app.kubernetes.io/name: allow-gateway-to-document-service
     app.kubernetes.io/part-of: saas-docprocessor
 spec:
   podSelector:
@@ -62,10 +63,10 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+              kubernetes.io/metadata.name: docprocessor-gateway
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: ingress-nginx
+              gateway.networking.k8s.io/gateway-name: docprocessor
       ports:
         - protocol: TCP
           port: 8000
