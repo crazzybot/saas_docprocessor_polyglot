@@ -137,7 +137,10 @@ jobs:
       # the image to catch that.
       - name: Smoke-test ${{ matrix.service }} image
         if: needs.changes.outputs[matrix.toolchain] == 'true'
-        run: docker run --rm --entrypoint sh ${{ matrix.service }}:ci -c "${{ matrix.smoke }}"
+        # Passed through env so quotes inside the command survive intact.
+        env:
+          SMOKE: ${{ matrix.smoke }}
+        run: docker run --rm --entrypoint sh ${{ matrix.service }}:ci -c "$SMOKE"
 
   # Terraform: formatting, validation, and a plan of each environment against
   # mocked providers (infra/tests). No Azure credentials involved.
