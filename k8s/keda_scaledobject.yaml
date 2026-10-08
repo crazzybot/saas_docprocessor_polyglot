@@ -41,10 +41,10 @@ spec:
         name: worker-servicebus-trigger-auth
 ---
 # TriggerAuthentication: the KEDA operator authenticates to Service Bus with
-# Azure Workload Identity, using the same Entra identity as the worker pods
-# (via its own federated credential, see Prerequisites above), so no
-# connection string is stored. For stricter least privilege, give KEDA a
-# separate identity so the app identity doesn't hold Data Owner.
+# Azure Workload Identity, using its own Entra identity (federated with the
+# operator's service account, see Prerequisites above), so no connection
+# string is stored and the app identity never holds Data Owner. Terraform
+# creates it: `terraform output k8s_values` (keda_identity_id).
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:
@@ -56,4 +56,4 @@ metadata:
 spec:
   podIdentity:
     provider: azure-workload
-    identityId: "00000000-0000-0000-0000-000000000000" # matches serviceaccount.yaml client-id
+    identityId: "99999999-9999-9999-9999-999999999999" # the KEDA identity, not serviceaccount.yaml's

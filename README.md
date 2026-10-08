@@ -80,6 +80,7 @@ saas_docprocessor_polyglot/
 ├── mise.toml, .nvmrc             toolchain versions
 ├── docker-compose.yml (+ override)   the whole system locally, with emulators and a trace UI
 ├── k8s/                          AKS manifests
+├── infra/                        Terraform: the Azure environment (AKS, Service Bus, Storage, PostgreSQL, ...)
 └── .github/workflows/ci.yml      per-toolchain jobs behind path filters, contracts check, images
 ```
 
@@ -361,10 +362,13 @@ kubectl apply -f k8s/hpa.yaml -f k8s/keda_scaledobject.yaml
 kubectl apply -f k8s/cluster_issuer.yaml -f k8s/gateway.yaml -f k8s/httproute.yaml
 ```
 
-Cluster prerequisites, the Azure setup (managed identity, RBAC roles,
-Service Bus entities, PostgreSQL with Entra auth, the API app registration),
-and the placeholders to replace are documented in the Python repository's
-README, under "Kubernetes deployment"; they apply here as is.
+The Azure side (cluster and add-ons, managed identities and RBAC roles,
+Service Bus entities, PostgreSQL with Entra auth, private networking) is
+Terraform in [`infra/`](infra/); its README walks through a first deployment
+and `terraform output k8s_values` prints the values the manifests'
+placeholders stand for. The API app registration and the per-customer
+tenant onboarding are described in the Python repository's README, under
+"Kubernetes deployment".
 
 ## Known limitations
 

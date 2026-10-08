@@ -12,10 +12,11 @@
 #   * cert-manager >= 1.15 with Gateway API support turned on
 #     (Helm value `config.enableGatewayAPI=true`), and the ClusterIssuer in
 #     cluster_issuer.yaml.
-#   * A static public IP `pip-docprocessor-gateway-prod` in resource group
+#   * A static public IP `pip-docprocessor-prod-gateway` in resource group
 #     `rg-docprocessor-prod-network`, with the cluster identity granted
 #     Network Contributor on that group, so the address (and the DNS record
-#     for the API host) survives the Gateway being recreated.
+#     for the API host) survives the Gateway being recreated. Created by
+#     infra/ (modules/network, modules/aks), like the add-on flags above.
 #
 # What the old Ingress did and where it lives now:
 #   * TLS + HTTP->HTTPS redirect: the listeners and redirect route below.
@@ -55,7 +56,7 @@ metadata:
     # hostname, into the secret its certificateRefs names.
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     # Copied by Istio onto the generated LoadBalancer Service.
-    service.beta.kubernetes.io/azure-pip-name: "pip-docprocessor-gateway-prod"
+    service.beta.kubernetes.io/azure-pip-name: "pip-docprocessor-prod-gateway"
     service.beta.kubernetes.io/azure-load-balancer-resource-group: "rg-docprocessor-prod-network"
 spec:
   gatewayClassName: approuting-istio

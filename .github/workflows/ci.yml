@@ -13,6 +13,7 @@ jobs:
     outputs:
       typescript: ${{ steps.filter.outputs.typescript }}
       python: ${{ steps.filter.outputs.python }}
+      infra: ${{ steps.filter.outputs.infra }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -42,6 +43,9 @@ jobs:
               - pyproject.toml
               - uv.lock
               - ruff.toml
+            infra:
+              - infra/**
+              - .github/workflows/**
 
   # Generated code must match contracts/schemas in both languages, and
   # contracts/openapi.json the document service's API schemas.
@@ -134,3 +138,17 @@ jobs:
       - name: Smoke-test ${{ matrix.service }} image
         if: needs.changes.outputs[matrix.toolchain] == 'true'
         run: docker run --rm --entrypoint sh ${{ matrix.service }}:ci -c "${{ matrix.smoke }}"
+
+  # Terraform: formatting, validation, and a plan of each environment against
+  # mocked providers (infra/tests). No Azure credentials involved.
+  infra:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v3
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.3
+      - run: just infra-check

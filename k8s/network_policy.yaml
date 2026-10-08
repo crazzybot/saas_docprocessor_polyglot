@@ -15,12 +15,12 @@
 # covers Entra ID token requests (login.microsoftonline.com) made by
 # Workload Identity.
 #
-# NOTE: Azure PaaS endpoints (Service Bus, Blob Storage) are reached over
-# the public internet (or Azure Private Link, if configured) using dynamic
-# IP ranges, so egress is scoped by port/protocol (443 HTTPS, 5671 AMQP+TLS)
-# rather than a fixed ipBlock. For tighter control in production, pair this
-# with Private Endpoints + an ipBlock restricted to your VNet's private
-# endpoint CIDR range.
+# NOTE: Blob Storage, PostgreSQL and (Premium) Service Bus are reached through
+# private endpoints in the VNet's private endpoint subnet (10.20.4.0/24 in
+# prod, see infra/modules/network), so egress to that subnet is allowed
+# explicitly; the public rules exclude private ranges. Public 443/5671 stays
+# for Entra ID token requests and for a Standard-tier Service Bus (dev), which
+# has no private endpoint.
 
 # ---------------------------------------------------------------------------
 # 1. Default deny: no pod in this namespace accepts ingress traffic unless a
@@ -111,6 +111,18 @@ spec:
       ports:
         - protocol: TCP
           port: 4317
+    # Private endpoints: Blob Storage (443), Service Bus (443, 5671) and
+    # PostgreSQL (5432).
+    - to:
+        - ipBlock:
+            cidr: 10.20.4.0/24
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 5671
+        - protocol: TCP
+          port: 5432
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -163,6 +175,15 @@ spec:
       ports:
         - protocol: TCP
           port: 4317
+    # Private endpoints: Blob Storage (443) and Service Bus (443, 5671).
+    - to:
+        - ipBlock:
+            cidr: 10.20.4.0/24
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 5671
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

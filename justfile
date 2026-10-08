@@ -211,3 +211,26 @@ smoke tag="dev":
         -e "await import('./dist/app.module.js'); await import('./dist/infrastructure.js')"
     docker run --rm --entrypoint python {{ registry }}/worker-service:{{ tag }} \
         -c "import worker_service.main, pytesseract; print(pytesseract.get_tesseract_version())"
+
+# ---------------------------------------------------------------------------
+# Infrastructure (Terraform, infra/): plan and apply sign in with the Azure
+# CLI locally, and with OIDC in CI
+# ---------------------------------------------------------------------------
+
+# Format, validate and plan-test the Terraform without Azure credentials
+infra-check:
+    terraform -chdir=infra fmt -check -recursive
+    terraform -chdir=infra init -backend=false -input=false
+    terraform -chdir=infra validate
+    terraform -chdir=infra test
+    terraform -chdir=infra/bootstrap init -backend=false -input=false
+    terraform -chdir=infra/bootstrap validate
+
+# Plan one environment into infra/<env>.tfplan, e.g. `just infra-plan prod`
+infra-plan env:
+    terraform -chdir=infra init -input=false -reconfigure -backend-config=envs/{{ env }}.backend.hcl
+    terraform -chdir=infra plan -input=false -var-file=envs/{{ env }}.tfvars -out={{ env }}.tfplan
+
+# Apply the plan saved by `just infra-plan <env>`
+infra-apply env:
+    terraform -chdir=infra apply -input=false {{ env }}.tfplan

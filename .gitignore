@@ -9,3 +9,8 @@ __pycache__/
 .ruff_cache/
 .env
 .DS_Store
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+infra/bootstrap/terraform.tfvars
