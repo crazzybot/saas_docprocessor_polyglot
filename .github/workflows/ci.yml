@@ -15,8 +15,8 @@ jobs:
       python: ${{ steps.filter.outputs.python }}
       infra: ${{ steps.filter.outputs.infra }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -52,14 +52,14 @@ jobs:
   contracts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v3
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: extractions/setup-just@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - run: pnpm install --frozen-lockfile
       - run: just contracts-check
 
@@ -82,11 +82,11 @@ jobs:
           --health-timeout 3s
           --health-retries 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v3
+      - uses: actions/checkout@v7
+      - uses: extractions/setup-just@v4
       # Installs the pnpm version pinned in package.json's packageManager.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -103,9 +103,9 @@ jobs:
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v3
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: extractions/setup-just@v4
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # --locked fails if uv.lock is out of date with the pyproject files.
@@ -127,7 +127,7 @@ jobs:
             toolchain: python
             smoke: python -c "import worker_service.main, pytesseract; pytesseract.get_tesseract_version()"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs[matrix.toolchain] == 'true'
       - name: Build ${{ matrix.service }} image
         if: needs.changes.outputs[matrix.toolchain] == 'true'
@@ -149,9 +149,9 @@ jobs:
     if: needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v3
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: extractions/setup-just@v4
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.14.3
       - run: just infra-check
