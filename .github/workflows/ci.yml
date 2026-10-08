@@ -59,7 +59,10 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # The python job saves the same cache key; saving here too races it.
       - uses: astral-sh/setup-uv@v7
+        with:
+          save-cache: false
       - run: pnpm install --frozen-lockfile
       - run: just contracts-check
 
