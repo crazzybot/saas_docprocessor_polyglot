@@ -234,3 +234,8 @@ infra-plan env:
 # Apply the plan saved by `just infra-plan <env>`
 infra-apply env:
     terraform -chdir=infra apply -input=false {{ env }}.tfplan
+
+# Destroy one environment but not the bootstrap; asks for "yes" after the plan
+infra-destroy env:
+    terraform -chdir=infra init -input=false -reconfigure -backend-config=envs/{{ env }}.backend.hcl
+    terraform -chdir=infra destroy -var-file=envs/{{ env }}.tfvars
