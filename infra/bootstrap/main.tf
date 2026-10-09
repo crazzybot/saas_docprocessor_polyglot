@@ -14,6 +14,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 5.8"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.13"
+    }
   }
 }
 
@@ -199,10 +203,20 @@ resource "azurerm_role_definition" "lock_operator" {
   assignable_scopes = [for rg in azurerm_resource_group.workload : rg.id]
 }
 
+# A new custom role takes a while to replicate; assigning it straight away
+# fails with RoleDefinitionDoesNotExist.
+resource "time_sleep" "lock_operator_propagation" {
+  create_duration = "60s"
+
+  triggers = {
+    role_definition_id = azurerm_role_definition.lock_operator.role_definition_resource_id
+  }
+}
+
 resource "azurerm_role_assignment" "ci_locks" {
   for_each           = toset(var.environments)
   scope              = azurerm_resource_group.workload[each.value].id
-  role_definition_id = azurerm_role_definition.lock_operator.role_definition_resource_id
+  role_definition_id = time_sleep.lock_operator_propagation.triggers["role_definition_id"]
   principal_id       = azurerm_user_assigned_identity.ci[each.value].principal_id
   principal_type     = "ServicePrincipal"
 }

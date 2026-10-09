@@ -80,14 +80,45 @@ variable "kubernetes_version" {
   }
 }
 
+# The subscription is only offered Arm64 (Ampere) sizes in canadacentral, and
+# those only in zones 1 and 2; images must be built for linux/arm64.
+variable "aks_zones" {
+  type    = list(string)
+  default = ["1", "2"]
+}
+
 variable "system_node_vm_size" {
   type    = string
-  default = "Standard_D2ds_v5"
+  default = "Standard_D2pds_v5"
 }
 
 variable "apps_node_vm_size" {
   type    = string
-  default = "Standard_D4ds_v5"
+  default = "Standard_D4pds_v5"
+}
+
+# Prod: one system node per zone, room for the add-ons to grow.
+variable "system_node_min_count" {
+  type    = number
+  default = 3
+}
+
+variable "system_node_max_count" {
+  type    = number
+  default = 5
+}
+
+# Surge nodes count against the regional vCPU quota; with no headroom, set
+# apps_node_max_unavailable = "1" (upgrades drain in place). The system pool
+# always surges: Azure doesn't allow max_unavailable on system pools.
+variable "apps_node_max_surge" {
+  type    = string
+  default = "33%"
+}
+
+variable "apps_node_max_unavailable" {
+  type    = string
+  default = null
 }
 
 variable "apps_node_min_count" {

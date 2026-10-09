@@ -115,8 +115,13 @@ module "aks" {
   node_subnet_id                             = module.network.aks_nodes_subnet_id
   pod_cidr                                   = var.pod_cidr
   service_cidr                               = var.service_cidr
+  zones                                      = var.aks_zones
   system_node_vm_size                        = var.system_node_vm_size
   apps_node_vm_size                          = var.apps_node_vm_size
+  system_node_min_count                      = var.system_node_min_count
+  system_node_max_count                      = var.system_node_max_count
+  apps_node_max_surge                        = var.apps_node_max_surge
+  apps_node_max_unavailable                  = var.apps_node_max_unavailable
   apps_node_min_count                        = var.apps_node_min_count
   apps_node_max_count                        = var.apps_node_max_count
   defender_enabled                           = var.defender_enabled

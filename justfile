@@ -11,7 +11,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := "0"
 # A virtualenv activated in the calling shell would make uv warn and ignore it.
 unexport VIRTUAL_ENV
 
-registry := "acrdocprocessor.azurecr.io"
+registry := "acrdocprocessorap.azurecr.io"
 services := "document-service worker-service"
 
 # The Python contract generator runs as a pinned, isolated tool (its own
@@ -197,9 +197,9 @@ demo base="http://localhost:8000" tenant="acme":
 # Images
 # ---------------------------------------------------------------------------
 
-# Build one service's image from the repository root, e.g. `just image worker-service 1.1.0`
+# Build one service's image (arm64, like the AKS nodes) from the repository root, e.g. `just image worker-service 1.1.0`
 image service tag="dev":
-    docker build -f services/{{ service }}/Dockerfile -t {{ registry }}/{{ service }}:{{ tag }} .
+    docker build --platform linux/arm64 -f services/{{ service }}/Dockerfile -t {{ registry }}/{{ service }}:{{ tag }} .
 
 # Build both images
 images tag="dev":

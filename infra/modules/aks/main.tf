@@ -6,7 +6,7 @@
 #   * Cilium network policy                (network_policy.yaml)
 #   * Managed Gateway API CRDs + app routing Istio implementation, AKS 1.36+
 #                                          (gateway.yaml, httproute.yaml)
-#   * Zones 1-3                            (topologySpreadConstraints)
+#   * Nodes spread over var.zones          (topologySpreadConstraints)
 # and the AKS baseline: Entra ID + Azure RBAC with local accounts disabled,
 # Standard tier (uptime SLA), automatic patch and node-image upgrades inside
 # maintenance windows, Azure Policy, NAT gateway egress, and a system pool
@@ -114,15 +114,17 @@ resource "azurerm_kubernetes_cluster" "this" {
     name                         = "system"
     vm_size                      = var.system_node_vm_size
     os_sku                       = "AzureLinux"
-    zones                        = ["1", "2", "3"]
+    zones                        = var.zones
     vnet_subnet_id               = var.node_subnet_id
     only_critical_addons_enabled = true
     auto_scaling_enabled         = true
-    min_count                    = 3
-    max_count                    = 5
+    min_count                    = var.system_node_min_count
+    max_count                    = var.system_node_max_count
     max_pods                     = 110
     temporary_name_for_rotation  = "systemtmp"
 
+    # System pools must surge (Azure rejects max_unavailable on them), so a
+    # system pool upgrade needs one node's worth of spare vCPU quota.
     upgrade_settings {
       max_surge = "33%"
     }
@@ -193,7 +195,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "apps" {
   mode                        = "User"
   vm_size                     = var.apps_node_vm_size
   os_sku                      = "AzureLinux"
-  zones                       = ["1", "2", "3"]
+  zones                       = var.zones
   vnet_subnet_id              = var.node_subnet_id
   auto_scaling_enabled        = true
   min_count                   = var.apps_node_min_count
@@ -202,8 +204,10 @@ resource "azurerm_kubernetes_cluster_node_pool" "apps" {
   temporary_name_for_rotation = "appstmp"
   tags                        = var.tags
 
+  # azurerm takes one or the other.
   upgrade_settings {
-    max_surge = "33%"
+    max_surge       = var.apps_node_max_unavailable == null ? var.apps_node_max_surge : null
+    max_unavailable = var.apps_node_max_unavailable
   }
 
   lifecycle {

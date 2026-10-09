@@ -57,7 +57,7 @@ spec:
               app.kubernetes.io/name: document-service
       containers:
         - name: document-service
-          image: acrdocprocessor.azurecr.io/document-service:2.0.0
+          image: acrdocprocessorap.azurecr.io/document-service:2.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

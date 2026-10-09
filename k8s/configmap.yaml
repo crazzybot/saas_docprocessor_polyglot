@@ -12,7 +12,7 @@ metadata:
     app.kubernetes.io/part-of: saas-docprocessor
 data:
   # Azure Service Bus (fully qualified namespace => Entra ID auth)
-  SERVICE_BUS_NAMESPACE: "sb-docprocessor-prod.servicebus.windows.net"
+  SERVICE_BUS_NAMESPACE: "sb-docprocessor-prod-ap.servicebus.windows.net"
   SERVICE_BUS_QUEUE_NAME: "extraction-jobs"
   SERVICE_BUS_RESULTS_TOPIC_NAME: "extraction-results"
   # Document service: lifecycle events out, extraction results in.
@@ -20,14 +20,14 @@ data:
   SERVICE_BUS_RESULTS_SUBSCRIPTION_NAME: "document-service"
 
   # Azure Blob Storage (account URL => Entra ID auth)
-  STORAGE_ACCOUNT_URL: "https://stdocprocessorprod.blob.core.windows.net"
+  STORAGE_ACCOUNT_URL: "https://stdocprocessorprodap.blob.core.windows.net"
   BLOB_CONTAINER_NAME: "raw-documents"
   RESULTS_CONTAINER_NAME: "extraction-results"
 
   # Document catalog: Azure Database for PostgreSQL Flexible Server with
   # Entra ID auth. The DSN has no password; the user is the PostgreSQL role
   # created for the managed identity (see serviceaccount.yaml).
-  DATABASE_URL: "postgresql://docprocessor-identity@psql-docprocessor-prod.postgres.database.azure.com:5432/docprocessor?sslmode=require"
+  DATABASE_URL: "postgresql://docprocessor-identity@psql-docprocessor-prod-ap.postgres.database.azure.com:5432/docprocessor?sslmode=require"
   POSTGRES_ENTRA_AUTH: "true"
 
   # Microsoft Entra ID token validation (document service). One Entra ID tenant
