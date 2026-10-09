@@ -98,6 +98,11 @@ Then install cert-manager with Gateway API enabled
   applying. Anything that replaces storage, Service Bus or PostgreSQL is
   blocked in prod by the delete locks; remove a lock deliberately if the
   replacement is intended.
+- `just infra-destroy <env>` tears the environment down to stop the charges.
+  It keeps the bootstrap (state storage and the resource groups), so
+  `infra-plan`/`infra-apply` bring it back; repeat the database role and
+  manifest steps afterwards. Data in PostgreSQL, storage and Service Bus is
+  lost. In prod, remove the `cannot-delete` locks first.
 - AKS patch versions and node images upgrade themselves inside the Sunday
   maintenance windows. Minor upgrades are a deliberate change to
   `kubernetes_version`.
