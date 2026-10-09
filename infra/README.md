@@ -52,7 +52,8 @@ You need Terraform 1.14 (`mise install`), the Azure CLI, kubectl and kubelogin.
 
 1. **Prerequisites in Entra ID:** an admin group per environment (for AKS
    cluster-admin and the PostgreSQL Entra admin), and the multi-tenant API app
-   registration (see the main README).
+   registration. [`docs/entra-identities.md`](../docs/entra-identities.md)
+   covers both, plus the identities Terraform creates.
 2. **Bootstrap**, as a subscription Owner:
    ```bash
    cd infra/bootstrap

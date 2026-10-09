@@ -65,7 +65,7 @@ spec:
               app.kubernetes.io/name: worker
       containers:
         - name: worker
-          image: acrdocprocessor.azurecr.io/worker-service:1.1.0
+          image: acrdocprocessorap.azurecr.io/worker-service:1.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: metrics

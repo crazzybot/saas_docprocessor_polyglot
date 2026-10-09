@@ -33,7 +33,7 @@ spec:
     - type: azure-servicebus
       metadata:
         queueName: extraction-jobs
-        namespace: sb-docprocessor-prod
+        namespace: sb-docprocessor-prod-ap
         # Target number of active messages per replica; KEDA computes
         # desiredReplicas = ceil(activeMessageCount / messageCount).
         messageCount: "5"

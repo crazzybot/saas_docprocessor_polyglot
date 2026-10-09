@@ -46,12 +46,35 @@ variable "service_cidr" {
   type = string
 }
 
+variable "zones" {
+  description = "Availability zones the node pools spread over."
+  type        = list(string)
+}
+
 variable "system_node_vm_size" {
   type = string
 }
 
 variable "apps_node_vm_size" {
   type = string
+}
+
+variable "system_node_min_count" {
+  type = number
+}
+
+variable "system_node_max_count" {
+  type = number
+}
+
+variable "apps_node_max_surge" {
+  description = "Extra apps nodes added during an upgrade; each one uses vCPU quota."
+  type        = string
+}
+
+variable "apps_node_max_unavailable" {
+  description = "Apps nodes drained at once during an upgrade instead of surging; null to surge."
+  type        = string
 }
 
 variable "apps_node_min_count" {
