@@ -29,6 +29,16 @@ from worker_service.processing import (
 
 logger = logging.getLogger(__name__)
 
+# AMQP condition Service Bus sends when it drops a connection that carried no
+# traffic for its idle window (120s); the async SDK sends no keep-alives.
+_CONNECTION_FORCED_CONDITION = "amqp:connection:forced"
+
+
+def is_connection_idle_close(exc: ServiceBusError) -> bool:
+    """True when the broker closed an idle connection. The SDK keeps the
+    condition private but appends it to the public message."""
+    return _CONNECTION_FORCED_CONDITION in str(exc)
+
 
 class Worker:
     """Owns the Service Bus receiver loop and coordinates graceful shutdown.
@@ -165,8 +175,13 @@ class Worker:
                     max_message_count=min(free, settings.max_message_count),
                     max_wait_time=settings.max_wait_time_seconds,
                 )
-            except ServiceBusError:
-                logger.exception("receive_messages_failed")
+            except ServiceBusError as exc:
+                if is_connection_idle_close(exc):
+                    # Expected after a quiet spell (e.g. all slots busy on long
+                    # jobs): the next receive reopens the link, so no trace.
+                    logger.warning("service_bus_connection_idle_closed", extra={"fields": {"error": str(exc)}})
+                else:
+                    logger.exception("receive_messages_failed")
                 await asyncio.sleep(1)
                 continue
 
