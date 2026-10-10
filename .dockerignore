@@ -16,4 +16,5 @@ contracts/examples
 services/*/test
 services/*/tests
 libs/*/test
+apps/*/test
 libs/*/tests

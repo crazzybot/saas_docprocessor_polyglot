@@ -1,8 +1,9 @@
 # Local end-to-end stack: Azurite (Blob Storage) + Azure Service Bus emulator
 # (backed by Azure SQL Edge) + PostgreSQL (document catalog) + both services
-# built from their Dockerfiles.
+# and the web UI, built from their Dockerfiles.
 #
 #   just up        (docker compose up --build)
+#   open http://localhost:3000, or:
 #   curl -H "X-Tenant-ID: acme" -F "file=@sample.pdf;type=application/pdf" localhost:8000/documents
 #
 # Auth is disabled; the tenant comes from X-Tenant-ID (default local-tenant).
@@ -71,3 +72,13 @@ services:
     environment:
       <<: *azure-dev-env
     ports: ['9100:9100', '8080:8080']
+
+  # The test client. Its image carries a local-mode config.json (tenant in
+  # X-Tenant-ID); the mounted snippet proxies /documents to document-service.
+  web-ui:
+    build: { context: ., dockerfile: apps/web-ui/Dockerfile }
+    depends_on: [document-service]
+    restart: on-failure # nginx exits if document-service's name doesn't resolve yet
+    volumes:
+      - ./apps/web-ui/nginx/local-api-proxy.conf:/etc/nginx/web-ui.d/api-proxy.conf:ro
+    ports: ['3000:8080']

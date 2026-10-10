@@ -1,5 +1,6 @@
 // @ts-check
 import js from '@eslint/js';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -20,6 +21,10 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'inline-type-imports' }],
       'no-console': 'error',
     },
+  },
+  {
+    files: ['apps/web-ui/src/**/*.{ts,tsx}'],
+    ...reactHooks.configs.flat['recommended-latest'],
   },
   {
     files: ['**/test/**', 'tests/**'],

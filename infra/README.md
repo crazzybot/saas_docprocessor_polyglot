@@ -85,7 +85,8 @@ You need Terraform 1.14 (`mise install`), the Azure CLI, kubectl and kubelogin.
 7. **Wire the manifests.** `terraform -chdir=infra output k8s_values` prints
    every value the files in `k8s/` need: the client IDs, `DATABASE_URL`, the
    gateway IP name, and so on. Point the API host's DNS A record at
-   `gateway_public_ip`.
+   `gateway_public_ip`, and the app host's too if the environment runs the
+   web test client (`k8s/web_ui.yaml`).
 
 Then install cert-manager with Gateway API enabled
 (`--set config.enableGatewayAPI=true`) and the OTel collector, and apply
