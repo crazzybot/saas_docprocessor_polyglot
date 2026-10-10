@@ -297,6 +297,50 @@ async def test_consume_never_exceeds_max_concurrency(monkeypatch: pytest.MonkeyP
     assert peak == 2
 
 
+@pytest.mark.parametrize(
+    ("error", "expected_event", "has_traceback"),
+    [
+        (
+            ServiceBusError(
+                "The connection was inactive for more than the allowed 120000 milliseconds.",
+                condition=b"amqp:connection:forced",
+            ),
+            "service_bus_connection_idle_closed",
+            False,
+        ),
+        (ServiceBusError("something else broke"), "receive_messages_failed", True),
+    ],
+)
+async def test_consume_logs_idle_close_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    error: ServiceBusError,
+    expected_event: str,
+    has_traceback: bool,
+) -> None:
+    monkeypatch.setattr(consumer.asyncio, "sleep", AsyncMock())
+    worker = consumer.Worker()
+    calls = 0
+
+    async def receive_messages(**_: object) -> list[MagicMock]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise error
+        worker.request_shutdown()
+        return []
+
+    receiver = MagicMock()
+    receiver.receive_messages = receive_messages
+
+    with caplog.at_level("WARNING", logger=consumer.__name__):
+        await worker.consume(receiver, blob_service_client=MagicMock(), service_bus_client=MagicMock())
+
+    assert calls == 2  # the loop carried on after the error
+    [record] = [r for r in caplog.records if r.getMessage() == expected_event]
+    assert (record.exc_info is not None) == has_traceback
+
+
 class _FailingReceiver:
     """Async context manager whose __aenter__ fails like an unready emulator."""
 
