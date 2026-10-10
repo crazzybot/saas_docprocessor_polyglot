@@ -78,9 +78,23 @@ prod, and are the safer choice.
 
 ### 3. Test client app registration (optional)
 
-Register a public client (or SPA) that requests `Documents.Upload` on the API,
-so you can get tokens and call the API. It's only needed until there's a real
-front end or customer client to test with.
+The web test client ([`apps/web-ui`](../apps/web-ui/README.md)) signs in
+through this registration; it also works for getting tokens by hand.
+
+1. **Supported account types:** accounts in any organizational directory
+   (multi-tenant), so testers from any onboarded tenant can sign in.
+2. **Platform:** Single-page application, with the redirect URI
+   `https://app.docprocessor.example.com` (the app host, no trailing path).
+   Add `http://localhost:5173` too if you run `just dev web-ui` in Entra mode.
+3. **API permissions:** the API registration's `Documents.Upload` delegated
+   scope. An admin of each tester's tenant consents to it, as for the API.
+4. **No secret or certificate.** A SPA is a public client and uses PKCE.
+5. **Where it goes:** its client ID, and the scope
+   (`<API Application ID URI>/Documents.Upload`), go into `config.json` in
+   [`k8s/web_ui.yaml`](../k8s/web_ui.yaml).
+
+The tester's own tenant must be in `AZURE_AD_ALLOWED_TENANT_IDS`, or the API
+answers 403 after a successful sign-in.
 
 ## What Terraform creates
 

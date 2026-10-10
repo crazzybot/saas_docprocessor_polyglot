@@ -62,11 +62,12 @@ spec:
   gatewayClassName: approuting-istio
   listeners:
     # Plain HTTP only redirects to HTTPS and serves cert-manager's HTTP-01
-    # challenges, whose routes cert-manager creates in this namespace.
+    # challenges, whose routes cert-manager creates in this namespace. No
+    # hostname, so it covers every HTTPS host below (the challenge routes
+    # carry the host they validate).
     - name: http
       port: 80
       protocol: HTTP
-      hostname: api.docprocessor.example.com
       allowedRoutes:
         namespaces:
           from: Same
@@ -79,6 +80,24 @@ spec:
         certificateRefs:
           - kind: Secret
             name: docprocessor-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: docprocessor
+    # The web test client (web_ui.yaml), with its own certificate so a
+    # missing DNS record for this host can't hold up the API's. Remove this
+    # listener in an environment that doesn't run the test client.
+    - name: https-app
+      port: 443
+      protocol: HTTPS
+      hostname: app.docprocessor.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: docprocessor-app-tls
       allowedRoutes:
         namespaces:
           from: Selector

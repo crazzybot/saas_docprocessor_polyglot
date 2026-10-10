@@ -27,6 +27,7 @@ jobs:
             typescript:
               - *shared
               - services/document-service/**
+              - apps/web-ui/**
               - libs/ts-shared/**
               - scripts/**
               - package.json
@@ -123,18 +124,25 @@ jobs:
       matrix:
         include:
           - service: document-service
+            dockerfile: services/document-service/Dockerfile
             toolchain: typescript
             smoke: node --input-type=module -e "await import('./dist/app.module.js'); await import('./dist/infrastructure.js')"
           # Also checks the OCR system dependency (tesseract) is installed.
           - service: worker-service
+            dockerfile: services/worker-service/Dockerfile
             toolchain: python
             smoke: python -c "import worker_service.main, pytesseract; pytesseract.get_tesseract_version()"
+          # Checks the nginx configuration parses.
+          - service: web-ui
+            dockerfile: apps/web-ui/Dockerfile
+            toolchain: typescript
+            smoke: nginx -t
     steps:
       - uses: actions/checkout@v7
         if: needs.changes.outputs[matrix.toolchain] == 'true'
       - name: Build ${{ matrix.service }} image
         if: needs.changes.outputs[matrix.toolchain] == 'true'
-        run: docker build -f services/${{ matrix.service }}/Dockerfile -t ${{ matrix.service }}:ci .
+        run: docker build -f ${{ matrix.dockerfile }} -t ${{ matrix.service }}:ci .
       # Tests run with every package of a toolchain installed, so a module
       # missing from one image would pass them. Import the entry point inside
       # the image to catch that.

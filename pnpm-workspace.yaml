@@ -3,6 +3,7 @@
 packages:
   - libs/ts-shared
   - services/document-service
+  - apps/web-ui
 
 # Install scripts that are not needed: protobufjs's only checks versions, and
 # esbuild (a dev-only dependency of vite) ships prebuilt platform binaries.

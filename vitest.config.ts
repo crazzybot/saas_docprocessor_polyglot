@@ -15,7 +15,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['services/*/test/**/*.test.ts', 'libs/*/test/**/*.test.ts'],
+    include: ['services/*/test/**/*.test.ts', 'libs/*/test/**/*.test.ts', 'apps/*/test/**/*.test.ts'],
     // Keep the services' JSON logs out of the test output.
     setupFiles: ['./vitest.setup.ts'],
   },

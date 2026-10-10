@@ -13,6 +13,8 @@ unexport VIRTUAL_ENV
 
 registry := "acrdocprocessorap.azurecr.io"
 services := "document-service worker-service"
+# Everything with an image: the services, and the web test client.
+image_names := services + " web-ui"
 
 # The Python contract generator runs as a pinned, isolated tool (its own
 # pydantic pin would otherwise constrain the services').
@@ -35,16 +37,18 @@ install:
 
 # ---------------------------------------------------------------------------
 # Contracts: contracts/schemas is the source of truth for the messages, and
-# the document service's zod schemas for contracts/openapi.json (HTTP API)
+# the document service's zod schemas for contracts/openapi.json (HTTP API),
+# from which the web UI's client types are generated
 # ---------------------------------------------------------------------------
 
-# Regenerate the message types and models, and the OpenAPI document
+# Regenerate the message types and models, the OpenAPI document and the web UI's API types
 contracts:
     node scripts/generate-ts-contracts.mjs
     rm -rf {{ py_generated }}
     {{ datamodel_codegen }} {{ codegen_flags }} --output {{ py_generated }}
     {{ just_executable() }} ts-build
     node scripts/generate-openapi.mjs
+    node scripts/generate-web-client.mjs
 
 # Fail if any generated contract is out of date with its source
 contracts-check:
@@ -53,6 +57,7 @@ contracts-check:
     node scripts/generate-ts-contracts.mjs --check
     {{ just_executable() }} ts-build
     node scripts/generate-openapi.mjs --check
+    node scripts/generate-web-client.mjs --check
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     {{ datamodel_codegen }} {{ codegen_flags }} --output "$tmp/generated" 2>/dev/null
@@ -84,10 +89,10 @@ typecheck: ts-typecheck
 test: ts-test py-test
 
 # ---------------------------------------------------------------------------
-# TypeScript: libs/ts-shared, services/document-service
+# TypeScript: libs/ts-shared, services/document-service, apps/web-ui
 # ---------------------------------------------------------------------------
 
-# Compile ts-shared and the TypeScript services to dist/
+# Compile ts-shared and the TypeScript services to dist/, and bundle the web UI
 ts-build:
     {{ pnpm }} -r build
 
@@ -146,7 +151,7 @@ py-test *args:
 deps:
     docker compose up -d postgres azurite sqledge servicebus-emulator
 
-# Run one service from source (reads .env): document-service restarts on change
+# Run one service from source (reads .env): document-service restarts on change; web-ui is Vite on :5173
 dev service:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -160,10 +165,14 @@ dev service:
         worker-service)
             uv run worker-service
             ;;
-        *) echo "unknown service: {{ service }} (expected one of: {{ services }})" >&2; exit 2 ;;
+        # Proxies /documents to API_PROXY_TARGET (default http://localhost:8000).
+        web-ui)
+            {{ pnpm }} --filter @docprocessor/web-ui dev
+            ;;
+        *) echo "unknown service: {{ service }} (expected one of: {{ image_names }})" >&2; exit 2 ;;
     esac
 
-# Run the full stack (dependencies, both services, Aspire Dashboard) in Docker
+# Run the full stack (dependencies, both services, web UI on :3000, Aspire Dashboard) in Docker
 up *args:
     docker compose up --build {{ args }}
 
@@ -197,20 +206,21 @@ demo base="http://localhost:8000" tenant="acme":
 # Images
 # ---------------------------------------------------------------------------
 
-# Build one service's image (arm64, like the AKS nodes) from the repository root, e.g. `just image worker-service 1.1.0`
+# Build one image (arm64, like the AKS nodes) from the repository root, e.g. `just image worker-service 1.1.0`
 image service tag="dev":
-    docker build --platform linux/arm64 -f services/{{ service }}/Dockerfile -t {{ registry }}/{{ service }}:{{ tag }} .
+    docker build --platform linux/arm64 -f {{ if service == "web-ui" { "apps" } else { "services" } }}/{{ service }}/Dockerfile -t {{ registry }}/{{ service }}:{{ tag }} .
 
-# Build both images
+# Build every image
 images tag="dev":
-    for s in {{ services }}; do {{ just_executable() }} image "$s" {{ tag }}; done
+    for s in {{ image_names }}; do {{ just_executable() }} image "$s" {{ tag }}; done
 
-# Import each image's entry point (catches dependencies missing from the image)
+# Import each service image's entry point (catches dependencies missing from the image); check web-ui's nginx config
 smoke tag="dev":
     docker run --rm --entrypoint node {{ registry }}/document-service:{{ tag }} --input-type=module \
         -e "await import('./dist/app.module.js'); await import('./dist/infrastructure.js')"
     docker run --rm --entrypoint python {{ registry }}/worker-service:{{ tag }} \
         -c "import worker_service.main, pytesseract; print(pytesseract.get_tesseract_version())"
+    docker run --rm --entrypoint nginx {{ registry }}/web-ui:{{ tag }} -t
 
 # ---------------------------------------------------------------------------
 # Infrastructure (Terraform, infra/): plan and apply sign in with the Azure

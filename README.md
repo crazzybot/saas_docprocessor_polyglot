@@ -10,6 +10,10 @@ and one set of message contracts.
 | `services/document-service` | TypeScript (NestJS 12, Node 24) | HTTP API: upload, document catalog (PostgreSQL), content and text access; publishes lifecycle events through a transactional outbox; consumes extraction results. |
 | `services/worker-service` | Python 3.11 (asyncio) | Consumes extraction jobs, extracts text (PyMuPDF, python-docx, Tesseract OCR), stores the result, and publishes a completion event. |
 
+A third, optional piece is a test client: [`apps/web-ui`](apps/web-ui/), a
+React SPA for trying the pipeline by hand. It isn't part of the product (see
+[its README](apps/web-ui/README.md)).
+
 The split plays to each ecosystem's strengths: a typed web framework for the
 API, and Python's document-processing (and, later, AI) libraries for the
 worker. The services never call each other. They talk only through Azure
@@ -46,6 +50,7 @@ just install          # pnpm install --frozen-lockfile && uv sync --locked --all
 just check            # contracts in sync, lint, format, typecheck, both test suites
 just up               # the whole system in Docker, with the Azure emulators
 just demo             # in another terminal: upload sample.pdf and walk through the API
+                      # or open http://localhost:3000 for the web test client
 ```
 
 `just` with no arguments lists every recipe.
@@ -67,6 +72,11 @@ saas_docprocessor_polyglot/
 │       ├── worker_service/       consumer, processing, extractors, health, metrics
 │       ├── tests/                pytest: processing, consumer, contracts
 │       ├── pyproject.toml
+│       └── Dockerfile
+├── apps/
+│   └── web-ui/                   TypeScript · pnpm workspace member · React + Vite test client
+│       ├── src/generated/        API types from contracts/openapi.json · GENERATED
+│       ├── nginx/                the image's server config, and the Compose-only API proxy
 │       └── Dockerfile
 ├── libs/
 │   ├── ts-shared/                @docprocessor/shared: contracts (Ajv over the schemas), settings,
@@ -256,9 +266,10 @@ Identity.
 ## Local development
 
 ```bash
-just up                          # PostgreSQL, Azurite, Service Bus emulator, both services, Aspire Dashboard
+just up                          # PostgreSQL, Azurite, Service Bus emulator, both services, web UI, Aspire Dashboard
                                  # (POSTGRES_HOST_PORT=5433 just up if 5432 is taken)
 just demo                        # upload sample.pdf, poll, read text, patch, list, delete
+open http://localhost:3000       # the same by hand in the web test client
 just logs worker | jq -c 'select(.correlation_id=="<id>")'
 just down                        # stop and delete volumes
 ```
@@ -276,6 +287,7 @@ cp .env.example .env
 just deps                        # only the dependencies
 just dev document-service        # tsc --watch + node --watch on :8000
 just dev worker-service          # uv run worker-service (health :8080, metrics :9100; needs tesseract for OCR)
+just dev web-ui                  # Vite on :5173 with hot reload, proxying /documents to :8000
 ```
 
 ### Checks and tests
@@ -321,15 +333,17 @@ installs fail if a lockfile is out of date.
 - **typescript**: lint, format, typecheck, and tests (with a PostgreSQL
   service container), only when TypeScript files changed.
 - **python**: ruff and pytest, only when Python files changed.
-- **docker-build**: builds each affected service's image and smoke-tests it
-  (imports its entry point; checks tesseract in the worker image).
+- **docker-build**: builds each affected image and smoke-tests it (imports
+  the service's entry point; checks tesseract in the worker image and the
+  nginx config in the web UI image).
 
 ## Building images
 
 ```bash
 just image document-service 2.0.0   # docker build -f services/document-service/Dockerfile … from the repo root
 just image worker-service 1.1.0
-just images && just smoke            # both, then import each image's entry point
+just image web-ui 0.1.0
+just images && just smoke            # all three, then smoke-test each
 ```
 
 - The TypeScript image fetches packages from the lockfile, compiles with
@@ -361,6 +375,12 @@ kubectl apply -f k8s/network_policy.yaml -f k8s/poddisruptionbudget.yaml -f k8s/
 kubectl apply -f k8s/hpa.yaml -f k8s/keda_scaledobject.yaml
 kubectl apply -f k8s/cluster_issuer.yaml -f k8s/gateway.yaml -f k8s/httproute.yaml
 ```
+
+The web test client is applied on its own, and only to environments meant
+for testing: `kubectl apply -f k8s/web_ui.yaml`. It's served at the app host
+through the Gateway's `https-app` listener; remove that listener from
+`gateway.yaml` where the client isn't deployed. Setup (DNS, the Entra
+redirect URI, `config.json`) is in [apps/web-ui/README.md](apps/web-ui/README.md).
 
 The Azure side (cluster and add-ons, managed identities and RBAC roles,
 Service Bus entities, PostgreSQL with Entra auth, private networking) is

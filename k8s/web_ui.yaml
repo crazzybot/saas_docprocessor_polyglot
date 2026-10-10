@@ -1,0 +1,192 @@
+# The web test client (apps/web-ui): a static SPA served by unprivileged nginx
+# at https://app.docprocessor.example.com, through the `https-app` listener of
+# the public Gateway (gateway.yaml). The browser calls the API host directly;
+# httproute.yaml's CORS filter already allows this origin.
+#
+# For test environments only. Apply it on its own, after the rest of k8s/:
+#   kubectl apply -f k8s/web_ui.yaml
+# It needs the test client app registration (docs/entra-identities.md, step 3)
+# and a DNS A record for the app host pointing at the Gateway's public IP.
+
+# Runtime configuration, served as /config.json next to the bundle.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-ui-config
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: web-ui-config
+    app.kubernetes.io/part-of: saas-docprocessor
+data:
+  # clientId: the test client app registration's application (client) ID.
+  # scopes: the API's Application ID URI (AZURE_AD_AUDIENCE in configmap.yaml
+  #   for v1 tokens) followed by /Documents.Upload.
+  # authority: /organizations accepts work accounts from any tenant; the API
+  #   still rejects tenants missing from AZURE_AD_ALLOWED_TENANT_IDS.
+  config.json: |
+    {
+      "apiBaseUrl": "https://api.docprocessor.example.com",
+      "auth": {
+        "mode": "entra",
+        "clientId": "22222222-2222-2222-2222-222222222222",
+        "authority": "https://login.microsoftonline.com/organizations",
+        "scopes": ["api://saas-docprocessor/Documents.Upload"]
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-ui
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: web-ui
+    app.kubernetes.io/part-of: saas-docprocessor
+    app.kubernetes.io/component: frontend
+spec:
+  # A test tool: one replica is enough, and a restart only reloads static files.
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web-ui
+        app.kubernetes.io/part-of: saas-docprocessor
+        app.kubernetes.io/component: frontend
+      annotations:
+        # Bump to roll the pod after editing web-ui-config: subPath mounts
+        # don't pick up ConfigMap changes.
+        docprocessor/config-revision: "1"
+    spec:
+      # Serves files only: no Azure access, so no Workload Identity.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # The nginx user of the nginx-unprivileged image.
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web-ui
+          image: acrdocprocessorap.azurecr.io/web-ui:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "64Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
+              readOnly: true
+            # nginx's pid file and temp paths.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: web-ui-config
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-ui
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: web-ui
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: web-ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+# Everything on the app host goes to the SPA. /healthz is answered too, which
+# is harmless: it reveals nothing.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: web-ui
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: web-ui-route
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  parentRefs:
+    - name: docprocessor
+      namespace: docprocessor-gateway
+      sectionName: https-app
+  hostnames:
+    - app.docprocessor.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: web-ui
+          port: 80
+---
+# Ingress: only the Gateway's proxies, as for document-service
+# (network_policy.yaml). Egress: none; the browser, not the pod, calls the API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-ui
+  namespace: docprocessor
+  labels:
+    app.kubernetes.io/name: web-ui
+    app.kubernetes.io/part-of: saas-docprocessor
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: web-ui
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: docprocessor-gateway
+          podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: docprocessor
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress: []

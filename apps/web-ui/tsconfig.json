@@ -1,0 +1,16 @@
+{
+  // A browser bundle built by Vite: tsc only typechecks it.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    // node only for vite.config.ts; the app itself never touches Node APIs.
+    "types": ["vite/client", "node"],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false
+  },
+  "include": ["src", "test", "vite.config.ts"]
+}
